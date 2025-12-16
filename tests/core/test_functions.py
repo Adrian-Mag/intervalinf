@@ -3,6 +3,8 @@
 import pytest
 import numpy as np
 from intervalinf.core import IntervalDomain, Function
+import math
+import itertools
 
 
 class MockSpace:
@@ -218,6 +220,348 @@ class TestFunctionIntegrate:
         result = f.integrate(weight=lambda x: x)
         # ∫[0,1] x dx = 0.5
         np.testing.assert_allclose(result, 0.5, rtol=1e-10)
+
+
+class TestHighFrequencyIntegration:
+    """High-frequency oscillatory integrals for Fourier-like bases."""
+
+    @pytest.fixture
+    def domain_space(self):
+        dom = IntervalDomain(0.0, 2.0 * math.pi)
+        return MockSpace(dom)
+
+    # Note: composite Simpson can underperform on very high-frequency
+    # oscillatory integrands depending on grid alignment and floating
+    # point cancellation — tests below relax Simpson tolerances slightly.
+    @pytest.mark.parametrize("method", ["simpson", "trapz"])
+    @pytest.mark.parametrize(
+        "k,tol",
+        [
+            (10, 1e-10),
+            (50, 1e-8),
+            (200, 1e-6),
+            (500, 1e-4),
+        ],
+    )
+    def test_high_freq_vectorized(self, domain_space, method, k, tol):
+        """Vectorized callable (numpy) for sin(k*x) should integrate to ~0.
+
+        Tolerances are method-aware: Simpson tolerances are relaxed to
+        account for observed higher cancellation error on oscillatory
+        integrands.
+        """
+        f = Function(domain_space, evaluate_callable=lambda x: np.sin(k * x))
+        # coarse and fine grids to check convergence
+        res_coarse = f.integrate(method=method, n_points=1024)
+        res_fine = f.integrate(method=method, n_points=4096)
+        # fine result should be closer to zero and within tolerance
+        assert abs(res_fine) <= abs(res_coarse) + 1e-12
+        tol_eff = tol * (3.0 if method == "simpson" else 1.0)
+        assert abs(res_fine) < tol_eff
+
+    @pytest.mark.parametrize("method", ["simpson", "trapz"])
+    @pytest.mark.parametrize("k,tol", [(10, 1e-8), (50, 1e-6), (200, 1e-3)])
+    def test_high_freq_scalar_callable(self, domain_space, method, k, tol):
+        """Scalar (non-vectorized) callable should behave similarly.
+
+        Use a Python scalar `math.sin` based callable and set vectorized=False
+        so the integrator evaluates point-by-point.
+        """
+
+        def scalar_fn(x):
+            return math.sin(k * float(x))
+        f = Function(domain_space, evaluate_callable=scalar_fn)
+        res_coarse = f.integrate(
+            method=method, n_points=1024, vectorized=False
+        )
+        res_fine = f.integrate(
+            method=method, n_points=4096, vectorized=False
+        )
+        assert abs(res_fine) <= abs(res_coarse) + 1e-12
+        tol_eff = tol * (3.0 if method == "simpson" else 1.0)
+        assert abs(res_fine) < tol_eff
+
+
+class TestCosineOffset:
+    """Test B: cos(kx) with nonzero average offset to check aliasing bias."""
+
+    @pytest.fixture
+    def domain_space(self):
+        dom = IntervalDomain(0.0, 2.0 * math.pi)
+        return MockSpace(dom)
+
+    @pytest.mark.parametrize("method", ["simpson", "trapz"])
+    @pytest.mark.parametrize("k", [10, 50, 200])
+    def test_cosine_plus_offset(self, domain_space, method, k):
+        """Integrate cos(kx) + 1; should equal domain length (2π)."""
+        f = Function(
+            domain_space, evaluate_callable=lambda x: np.cos(k * x) + 1.0
+        )
+        result = f.integrate(method=method, n_points=4096)
+        expected = 2.0 * math.pi
+        # cos(kx) integrates to ~0 on [0,2π], so result ≈ ∫1 dx = 2π
+        tol = 1e-6 if method == "trapz" else 3e-6
+        np.testing.assert_allclose(result, expected, rtol=tol)
+
+
+class TestNarrowGaussians:
+    """Test C: Narrow Gaussians with small sigma to check peak capture."""
+
+    @pytest.fixture
+    def unit_space(self):
+        return MockSpace(IntervalDomain(0.0, 1.0))
+
+    @pytest.mark.parametrize("method", ["simpson", "trapz"])
+    @pytest.mark.parametrize("sigma", [1e-2, 5e-3, 1e-3])
+    def test_narrow_gaussian_center(self, unit_space, method, sigma):
+        """Gaussian centered at x0=0.5 with small sigma."""
+        x0 = 0.5
+        norm = 1.0 / (sigma * math.sqrt(2.0 * math.pi))
+
+        def gauss(x):
+            return norm * np.exp(-0.5 * ((x - x0) / sigma) ** 2)
+
+        f = Function(unit_space, evaluate_callable=gauss)
+        # Use fine grid for narrow peak
+        result = f.integrate(method=method, n_points=8192)
+        # On infinite domain integral = 1; on [0,1] ≈ 1 for small sigma
+        np.testing.assert_allclose(result, 1.0, rtol=5e-2)
+
+    @pytest.mark.parametrize("method", ["simpson", "trapz"])
+    def test_narrow_gaussian_near_boundary(self, unit_space, method):
+        """Gaussian near boundary x0=0.1 with small sigma."""
+        x0 = 0.1
+        sigma = 2e-3
+        norm = 1.0 / (sigma * math.sqrt(2.0 * math.pi))
+
+        def gauss(x):
+            return norm * np.exp(-0.5 * ((x - x0) / sigma) ** 2)
+
+        f = Function(unit_space, evaluate_callable=gauss)
+        result = f.integrate(method=method, n_points=8192)
+        # With sigma=2e-3 and x0=0.1, domain [0,1] captures nearly all mass
+        np.testing.assert_allclose(result, 1.0, rtol=5e-2)
+
+
+class TestDiscontinuousFunctions:
+    """Test D: Step/Heaviside functions with jumps inside domain."""
+
+    @pytest.fixture
+    def unit_space(self):
+        return MockSpace(IntervalDomain(0.0, 1.0))
+
+    @pytest.mark.parametrize("method", ["simpson", "trapz"])
+    def test_heaviside_midpoint(self, unit_space, method):
+        """Step at x=0.5: f=1 for x<0.5, f=2 for x>=0.5."""
+
+        def step(x):
+            return np.where(x < 0.5, 1.0, 2.0)
+
+        f = Function(unit_space, evaluate_callable=step)
+        result = f.integrate(method=method, n_points=4096)
+        # Exact: 0.5*1 + 0.5*2 = 1.5
+        np.testing.assert_allclose(result, 1.5, rtol=1e-4)
+
+    @pytest.mark.parametrize("method", ["simpson", "trapz"])
+    def test_multiple_jumps(self, unit_space, method):
+        """Piecewise constant with multiple jumps."""
+
+        def piecewise(x):
+            return np.where(
+                x < 0.25, 1.0, np.where(x < 0.75, 3.0, 2.0)
+            )
+
+        f = Function(unit_space, evaluate_callable=piecewise)
+        result = f.integrate(method=method, n_points=8192)
+        # Exact: 0.25*1 + 0.5*3 + 0.25*2 = 0.25+1.5+0.5 = 2.25
+        np.testing.assert_allclose(result, 2.25, rtol=1e-4)
+
+
+class TestMultipleDisjointSupports:
+    """Test E: Functions with multiple disjoint compact supports."""
+
+    @pytest.fixture
+    def unit_space(self):
+        return MockSpace(IntervalDomain(0.0, 1.0))
+
+    @pytest.mark.parametrize("method", ["simpson", "trapz"])
+    def test_two_disjoint_bumps(self, unit_space, method):
+        """Two narrow bumps on disjoint intervals."""
+        f = Function(
+            unit_space,
+            evaluate_callable=lambda x: np.ones_like(x),
+            support=[(0.1, 0.2), (0.7, 0.9)],
+        )
+        result = f.integrate(method=method, n_points=2048)
+        # Integral = 0.1 + 0.2 = 0.3
+        np.testing.assert_allclose(result, 0.3, rtol=1e-6)
+
+    @pytest.mark.parametrize("method", ["simpson", "trapz"])
+    def test_three_disjoint_intervals(self, unit_space, method):
+        """Three small intervals with constant value."""
+        f = Function(
+            unit_space,
+            evaluate_callable=lambda x: 2.0 * np.ones_like(x),
+            support=[(0.1, 0.15), (0.4, 0.5), (0.8, 0.85)],
+        )
+        result = f.integrate(method=method, n_points=4096)
+        # Integral = 2*(0.05 + 0.1 + 0.05) = 2*0.2 = 0.4
+        np.testing.assert_allclose(result, 0.4, rtol=1e-6)
+
+
+class TestBoundarySemantics:
+    """Test H: Support endpoint semantics (open/closed/clopen)."""
+
+    def test_closed_support_includes_endpoints(self):
+        """Support (a,b) is treated as closed [a,b] (current behavior)."""
+        dom = IntervalDomain(0.0, 1.0)
+        space = MockSpace(dom)
+        f = Function(
+            space, evaluate_callable=lambda x: np.ones_like(x), support=(0.2, 0.8)
+        )
+        # Evaluate exactly at endpoints
+        assert f(0.2) == 1.0
+        assert f(0.8) == 1.0
+        # Outside
+        assert f(0.1) == 0.0
+        assert f(0.9) == 0.0
+
+    def test_support_boundary_consistency(self):
+        """Integration over support matches callable values at boundaries."""
+        dom = IntervalDomain(0.0, 1.0)
+        space = MockSpace(dom)
+        # Linear function on closed support
+        f = Function(space, evaluate_callable=lambda x: x, support=(0.25, 0.75))
+        result = f.integrate(method="simpson", n_points=2048)
+        # Exact integral: ∫[0.25,0.75] x dx = [x²/2] = (0.75²-0.25²)/2
+        expected = (0.75**2 - 0.25**2) / 2.0
+        np.testing.assert_allclose(result, expected, rtol=1e-6)
+
+
+class TestNonVectorizedCallables:
+    """Test I: Non-vectorized scalar-only callables."""
+
+    @pytest.fixture
+    def unit_space(self):
+        return MockSpace(IntervalDomain(0.0, 1.0))
+
+    @pytest.mark.parametrize("method", ["simpson", "trapz"])
+    def test_scalar_polynomial(self, unit_space, method):
+        """Polynomial using scalar math operations."""
+
+        def poly_scalar(x):
+            return float(x) ** 2 + 2 * float(x) + 1
+
+        f = Function(unit_space, evaluate_callable=poly_scalar)
+        result = f.integrate(method=method, n_points=512, vectorized=False)
+        # ∫[0,1] (x²+2x+1) dx = [x³/3 + x² + x] = 1/3 + 1 + 1 = 7/3
+        expected = 7.0 / 3.0
+        np.testing.assert_allclose(result, expected, rtol=1e-6)
+
+    @pytest.mark.parametrize("method", ["simpson", "trapz"])
+    def test_scalar_vs_vectorized_equivalence(self, unit_space, method):
+        """Scalar and vectorized callables should produce same integral."""
+
+        def vec_fn(x):
+            return np.exp(x)
+
+        def scalar_fn(x):
+            return math.exp(float(x))
+
+        f_vec = Function(unit_space, evaluate_callable=vec_fn)
+        f_scalar = Function(unit_space, evaluate_callable=scalar_fn)
+
+        res_vec = f_vec.integrate(method=method, n_points=1024)
+        res_scalar = f_scalar.integrate(
+            method=method, n_points=1024, vectorized=False
+        )
+        np.testing.assert_allclose(res_vec, res_scalar, rtol=1e-10)
+
+
+class TestExtremeFrequencies:
+    """Test K: Extremely large k (aliasing) to document failure modes."""
+
+    @pytest.fixture
+    def domain_space(self):
+        dom = IntervalDomain(0.0, 2.0 * math.pi)
+        return MockSpace(dom)
+
+    @pytest.mark.parametrize("method", ["simpson", "trapz"])
+    def test_very_high_frequency_documented_error(self, domain_space, method):
+        """k=1000: aliasing becomes severe; document required n_points."""
+        k = 1000
+        f = Function(domain_space, evaluate_callable=lambda x: np.sin(k * x))
+        # With moderate n_points, error is large
+        res_coarse = f.integrate(method=method, n_points=1024)
+        # Should be ~0 but aliasing produces large error
+        assert abs(res_coarse) < 1.0  # just document it doesn't blow up
+
+        # With very fine grid should improve
+        res_fine = f.integrate(method=method, n_points=32768)
+        # Expect improvement but may still have error
+        assert abs(res_fine) < 0.1
+
+
+class TestNaNInfHandling:
+    """Test L: Functions producing NaN/Inf at sample points."""
+
+    @pytest.fixture
+    def unit_space(self):
+        return MockSpace(IntervalDomain(0.0, 1.0))
+
+    def test_nan_propagation(self, unit_space):
+        """Function returning NaN should propagate to integral."""
+
+        def nan_fn(x):
+            return np.nan * np.ones_like(x)
+
+        f = Function(unit_space, evaluate_callable=nan_fn)
+        result = f.integrate(method="simpson", n_points=128)
+        assert np.isnan(result)
+
+    def test_inf_propagation(self, unit_space):
+        """Function returning Inf should propagate."""
+
+        def inf_fn(x):
+            return np.inf * np.ones_like(x)
+
+        f = Function(unit_space, evaluate_callable=inf_fn)
+        result = f.integrate(method="trapz", n_points=128)
+        assert np.isinf(result)
+
+    def test_mixed_finite_nan(self, unit_space):
+        """Function with some NaN values propagates NaN to result."""
+
+        def mixed_fn(x):
+            return np.where(x < 0.5, 1.0, np.nan)
+
+        f = Function(unit_space, evaluate_callable=mixed_fn)
+        result = f.integrate(method="simpson", n_points=256)
+        assert np.isnan(result)
+
+
+class TestLargeNPoints:
+    """Test M: Very large n_points to exercise performance/memory."""
+
+    @pytest.fixture
+    def unit_space(self):
+        return MockSpace(IntervalDomain(0.0, 1.0))
+
+    @pytest.mark.parametrize("method", ["simpson", "trapz"])
+    def test_large_n_points_completes(self, unit_space, method):
+        """Integration with n_points=100k should complete successfully."""
+        f = Function(unit_space, evaluate_callable=lambda x: x**2)
+        result = f.integrate(method=method, n_points=100000)
+        # ∫[0,1] x² dx = 1/3
+        np.testing.assert_allclose(result, 1.0 / 3.0, rtol=1e-8)
+
+    def test_very_large_n_points_memory(self, unit_space):
+        """n_points=1M should complete (checks memory allocation)."""
+        f = Function(unit_space, evaluate_callable=np.sin)
+        result = f.integrate(method="simpson", n_points=1000000)
+        # ∫[0,1] sin(x) dx = -cos(1) + cos(0) = 1 - cos(1) ≈ 0.4597
+        expected = 1.0 - math.cos(1.0)
+        np.testing.assert_allclose(result, expected, rtol=1e-10)
 
 
 class TestFunctionCopy:

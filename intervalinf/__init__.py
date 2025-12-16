@@ -12,8 +12,18 @@ __version__ = "0.1.0"
 from intervalinf.core import IntervalDomain, BoundaryConditions, Function
 from intervalinf.core import IntegrationConfig, ParallelConfig
 
-# Spaces (depend on pygeoinf) - imported lazily to allow core-only usage
-# from intervalinf.spaces import Lebesgue, Sobolev
+# Spaces (depend on pygeoinf for base classes)
+from intervalinf.spaces import (
+    Lebesgue,
+    LebesgueSpaceDirectSum,
+    LebesgueIntegrationConfig,
+    LebesgueParallelConfig,
+    Sobolev,
+    SobolevSpaceDirectSum,
+    LinearFormKernel,
+    KnownRegion,
+    PartitionedLebesgueSpace,
+)
 
 # Operators (depend on pygeoinf) - imported lazily
 # from intervalinf.operators import Laplacian, InverseLaplacian, Gradient
@@ -27,9 +37,16 @@ __all__ = [
     "Function",
     "IntegrationConfig",
     "ParallelConfig",
-    # Spaces (Level 2) - uncomment when spaces module is ready
-    # "Lebesgue",
-    # "Sobolev",
+    # Spaces (Level 2)
+    "Lebesgue",
+    "LebesgueSpaceDirectSum",
+    "LebesgueIntegrationConfig",
+    "LebesgueParallelConfig",
+    "Sobolev",
+    "SobolevSpaceDirectSum",
+    "LinearFormKernel",
+    "KnownRegion",
+    "PartitionedLebesgueSpace",
     # Operators (Level 3) - uncomment when operators module is ready
     # "Laplacian",
     # "InverseLaplacian",
