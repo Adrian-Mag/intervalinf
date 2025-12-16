@@ -112,45 +112,49 @@ class TestIntervalDomainIntegration:
     def test_integrate_constant(self):
         """Test integration of constant function."""
         domain = IntervalDomain(0, 1)
-        result = domain.integrate(lambda x: 2.0, n_points=100)
-        assert result == pytest.approx(2.0, rel=1e-6)
+        result = domain.integrate(lambda x: 2.0, n_points=10)
+        assert result == pytest.approx(2.0, rel=1e-11)
 
     def test_integrate_linear(self):
         """Test integration of linear function: ∫₀¹ x dx = 0.5."""
         domain = IntervalDomain(0, 1)
         result = domain.integrate(lambda x: x, n_points=100)
-        assert result == pytest.approx(0.5, rel=1e-6)
+        assert result == pytest.approx(0.5, rel=1e-10)
 
     def test_integrate_quadratic(self):
         """Test integration of quadratic: ∫₀¹ x² dx = 1/3."""
         domain = IntervalDomain(0, 1)
-        result = domain.integrate(lambda x: x**2, n_points=1000)
-        assert result == pytest.approx(1/3, rel=1e-6)
+        result = domain.integrate(lambda x: x**2, n_points=100)
+        assert result == pytest.approx(1/3, rel=1e-10)
 
     def test_integrate_sine(self):
         """Test integration of sin: ∫₀^π sin(x) dx = 2."""
         domain = IntervalDomain(0, np.pi)
         result = domain.integrate(np.sin, n_points=1000)
-        assert result == pytest.approx(2.0, rel=1e-5)
+        assert result == pytest.approx(2.0, rel=1e-10)
 
     def test_integrate_with_support(self):
         """Test integration over subdomain."""
         domain = IntervalDomain(0, 1)
         # ∫₀^0.5 2 dx = 1
-        result = domain.integrate(lambda x: 2.0, support=(0, 0.5), n_points=100)
-        assert result == pytest.approx(1.0, rel=1e-6)
+        result = domain.integrate(
+            lambda x: 2.0, support=(0, 0.5), n_points=100
+        )
+        assert result == pytest.approx(1.0, rel=1e-10)
 
     def test_integrate_methods(self):
         """Test different integration methods give similar results."""
         domain = IntervalDomain(0, 1)
-        f = lambda x: x**2
+
+        def f(x):
+            return x**2
 
         simpson = domain.integrate(f, method="simpson", n_points=1000)
         trapz = domain.integrate(f, method="trapz", n_points=1000)
 
         # Both should be close to 1/3
-        assert simpson == pytest.approx(1/3, rel=1e-4)
-        assert trapz == pytest.approx(1/3, rel=1e-3)
+        assert simpson == pytest.approx(1/3, rel=1e-8)
+        assert trapz == pytest.approx(1/3, rel=1e-6)
 
 
 class TestIntervalDomainOperations:
@@ -212,5 +216,13 @@ class TestIntervalDomainOperations:
         """Test string representation."""
         assert repr(IntervalDomain(0, 1)) == "[0.0, 1.0]"
         assert repr(IntervalDomain(0, 1, boundary_type="open")) == "(0.0, 1.0)"
-        assert repr(IntervalDomain(0, 1, boundary_type="left_open")) == "(0.0, 1.0]"
-        assert repr(IntervalDomain(0, 1, boundary_type="right_open")) == "[0.0, 1.0)"
+        assert (
+            repr(
+                IntervalDomain(0, 1, boundary_type="left_open")
+            ) == "(0.0, 1.0]"
+        )
+        assert (
+            repr(
+                IntervalDomain(0, 1, boundary_type="right_open")
+            ) == "[0.0, 1.0)"
+        )

@@ -145,7 +145,9 @@ class TestFunctionSupport:
 
     def test_support_evaluation(self, space):
         """Test evaluation respects support."""
-        f = Function(space, evaluate_callable=lambda x: x + 1, support=(0.25, 0.75))
+        f = Function(
+            space, evaluate_callable=lambda x: x + 1, support=(0.25, 0.75)
+        )
         # Inside support
         assert f(0.5) == 1.5
         # Outside support should be zero
@@ -154,7 +156,11 @@ class TestFunctionSupport:
 
     def test_support_array_evaluation(self, space):
         """Test array evaluation respects support."""
-        f = Function(space, evaluate_callable=lambda x: np.ones_like(x), support=(0.25, 0.75))
+        f = Function(
+            space,
+            evaluate_callable=lambda x: np.ones_like(x),
+            support=(0.25, 0.75),
+        )
         x = np.array([0.1, 0.3, 0.5, 0.7, 0.9])
         result = f(x)
         expected = np.array([0.0, 1.0, 1.0, 1.0, 0.0])
@@ -170,13 +176,21 @@ class TestFunctionValidation:
 
     def test_requires_callable_or_coefficients(self, space):
         """Test must have callable or coefficients."""
-        with pytest.raises(ValueError, match="coefficients.*evaluate_callable"):
+        with pytest.raises(
+            ValueError, match="coefficients.*evaluate_callable"
+        ):
             Function(space)
 
     def test_cannot_have_both(self, space):
         """Test cannot have both callable and coefficients."""
-        with pytest.raises(ValueError, match="coefficients.*evaluate_callable"):
-            Function(space, coefficients=np.array([1, 2]), evaluate_callable=lambda x: x)
+        with pytest.raises(
+            ValueError, match="coefficients.*evaluate_callable"
+        ):
+            Function(
+                space,
+                coefficients=np.array([1, 2]),
+                evaluate_callable=lambda x: x,
+            )
 
 
 class TestFunctionIntegrate:
@@ -190,20 +204,20 @@ class TestFunctionIntegrate:
         """Test integration of constant function."""
         f = Function(space, evaluate_callable=lambda x: np.ones_like(x))
         result = f.integrate()
-        np.testing.assert_allclose(result, 1.0, rtol=1e-6)
+        np.testing.assert_allclose(result, 1.0, rtol=1e-10)
 
     def test_integrate_linear(self, space):
         """Test integration of linear function."""
         f = Function(space, evaluate_callable=lambda x: x)
         result = f.integrate()
-        np.testing.assert_allclose(result, 0.5, rtol=1e-6)
+        np.testing.assert_allclose(result, 0.5, rtol=1e-10)
 
     def test_integrate_with_weight(self, space):
         """Test integration with weight function."""
         f = Function(space, evaluate_callable=lambda x: np.ones_like(x))
         result = f.integrate(weight=lambda x: x)
         # ∫[0,1] x dx = 0.5
-        np.testing.assert_allclose(result, 0.5, rtol=1e-6)
+        np.testing.assert_allclose(result, 0.5, rtol=1e-10)
 
 
 class TestFunctionCopy:
@@ -227,8 +241,8 @@ class TestFunctionCopy:
         f2 = f.copy()
         np.testing.assert_array_equal(f2.coefficients, coeffs)
         # Verify it's a copy, not same array
-        f2.coefficients[0] = 99
-        assert f.coefficients[0] == 1
+        f2.coefficients[0] = 99  # type: ignore
+        assert f.coefficients[0] == 1  # type: ignore
 
 
 class TestFunctionRepr:

@@ -29,7 +29,7 @@ class TestIntegrationConfigMethods:
     def test_valid_methods(self):
         """Test all valid methods."""
         for method in ["simpson", "trapz", "quad"]:
-            config = IntegrationConfig(method=method)
+            config = IntegrationConfig(method=method)  # type: ignore
             assert config.method == method
 
     def test_copy(self):

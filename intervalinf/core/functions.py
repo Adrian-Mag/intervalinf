@@ -78,7 +78,10 @@ class Function:
             coefficients is not None and evaluate_callable is not None
         ):
             raise ValueError(
-                "Exactly one of 'coefficients' or 'evaluate_callable' must be provided."
+                (
+                    "Exactly one of 'coefficients' or 'evaluate_callable' "
+                    "must be provided."
+                )
             )
 
         self.space = space
@@ -88,7 +91,9 @@ class Function:
         self.support = self._check_support(support)
 
         # Function representation
-        self.coefficients = coefficients.copy() if coefficients is not None else None
+        self.coefficients = (
+            coefficients.copy() if coefficients is not None else None
+        )
         self.evaluate_callable = evaluate_callable
 
     @property
