@@ -20,7 +20,9 @@ def pi_domain():
 
 @pytest.fixture
 def simple_space(unit_domain):
-    """A minimal space-like object for testing Function without full Lebesgue."""
+    """
+    A minimal space-like object for testing Function without full Lebesgue.
+    """
     class SimpleSpace:
         def __init__(self, domain):
             self._function_domain = domain

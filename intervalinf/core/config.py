@@ -135,7 +135,8 @@ class LebesgueIntegrationConfig:
     Examples
     --------
     >>> config = LebesgueIntegrationConfig()
-    >>> config.inner_product.n_points = 10000  # High accuracy for Gram matrices
+    >>> config.inner_product.n_points = 10000  \
+    # High accuracy for Gram matrices
     """
 
     inner_product: IntegrationConfig = field(default_factory=IntegrationConfig)
@@ -143,8 +144,12 @@ class LebesgueIntegrationConfig:
     general: IntegrationConfig = field(default_factory=IntegrationConfig)
 
     @classmethod
-    def from_single(cls, config: IntegrationConfig) -> "LebesgueIntegrationConfig":
-        """Create hierarchical config using same settings for all subsystems."""
+    def from_single(
+        cls, config: IntegrationConfig
+    ) -> "LebesgueIntegrationConfig":
+        """
+        Create hierarchical config using same settings for all subsystems.
+        """
         return cls(
             inner_product=config.copy(),
             dual=config.copy(),
@@ -205,7 +210,9 @@ class LebesgueParallelConfig:
 
     @classmethod
     def from_single(cls, config: ParallelConfig) -> "LebesgueParallelConfig":
-        """Create hierarchical config using same settings for all subsystems."""
+        """
+        Create hierarchical config using same settings for all subsystems.
+        """
         return cls(
             inner_product=config.copy(),
             dual=config.copy(),

@@ -5,6 +5,7 @@
 # from intervalinf.operators.gradient import Gradient
 # from intervalinf.operators.bessel import BesselSobolev, BesselSobolevInverse
 # from intervalinf.operators.sola import SOLAOperator
-# from intervalinf.operators.radial import RadialLaplacian, InverseRadialLaplacian
+# from intervalinf.operators.radial import RadialLaplacian
+# from intervalinf.operators.radial import InverseRadialLaplacian
 
 __all__ = []

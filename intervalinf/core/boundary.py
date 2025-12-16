@@ -75,7 +75,9 @@ class BoundaryConditions:
             ]
             for param in required:
                 if param not in self._params:
-                    raise ValueError(f"Robin boundary conditions require '{param}'")
+                    raise ValueError(
+                        f"Robin boundary conditions require '{param}'"
+                    )
 
         elif self.type == "periodic":
             pass  # No additional parameters needed
@@ -92,15 +94,27 @@ class BoundaryConditions:
     def is_homogeneous(self) -> bool:
         """Check if boundary conditions are homogeneous."""
         if self.type == "dirichlet":
-            return self._params.get("left", 0) == 0 and self._params.get("right", 0) == 0
+            return (
+                self._params.get("left", 0) == 0
+                and self._params.get("right", 0) == 0
+            )
         elif self.type == "neumann":
-            return self._params.get("left", 0) == 0 and self._params.get("right", 0) == 0
+            return (
+                self._params.get("left", 0) == 0
+                and self._params.get("right", 0) == 0
+            )
         elif self.type == "periodic":
             return True  # Periodic BCs are considered homogeneous
         elif self.type == "mixed_dirichlet_neumann":
-            return self._params.get("left", 0) == 0 and self._params.get("right", 0) == 0
+            return (
+                self._params.get("left", 0) == 0
+                and self._params.get("right", 0) == 0
+            )
         elif self.type == "mixed_neumann_dirichlet":
-            return self._params.get("left", 0) == 0 and self._params.get("right", 0) == 0
+            return (
+                self._params.get("left", 0) == 0
+                and self._params.get("right", 0) == 0
+            )
         elif self.type == "robin":
             return (
                 self._params.get("left_value", 0) == 0
@@ -119,7 +133,8 @@ class BoundaryConditions:
         cls, left_value: float = 0, right_value: float = 0
     ) -> "BoundaryConditions":
         """
-        Create Dirichlet boundary conditions: u(a) = left_value, u(b) = right_value.
+        Create Dirichlet boundary conditions:
+        u(a) = left_value, u(b) = right_value.
 
         Parameters
         ----------
@@ -195,7 +210,11 @@ class BoundaryConditions:
         right_derivative : float, optional
             Derivative at right boundary (default 0).
         """
-        return cls("mixed_dirichlet_neumann", left=left_value, right=right_derivative)
+        return cls(
+            "mixed_dirichlet_neumann",
+            left=left_value,
+            right=right_derivative,
+        )
 
     @classmethod
     def mixed_neumann_dirichlet(
@@ -211,7 +230,11 @@ class BoundaryConditions:
         right_value : float, optional
             Value at right boundary (default 0).
         """
-        return cls("mixed_neumann_dirichlet", left=left_derivative, right=right_value)
+        return cls(
+            "mixed_neumann_dirichlet",
+            left=left_derivative,
+            right=right_value,
+        )
 
     def __str__(self) -> str:
         if self.type == "periodic":

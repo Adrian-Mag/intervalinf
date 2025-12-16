@@ -5,7 +5,7 @@ This module provides a minimal IntervalDomain class with meshing and
 integration capabilities.
 """
 
-from typing import Callable, Optional, Tuple, Union
+from typing import Callable, Optional, Tuple, Union, List
 import math
 import numpy as np
 
@@ -15,7 +15,8 @@ class IntervalDomain:
     A 1D interval domain with meshing and integration support.
 
     Represents an interval [a, b] with optional boundary types (open, closed,
-    semi-open). Provides methods for meshing, integration, and domain operations.
+    semi-open). Provides methods for meshing, integration, and domain
+    operations.
 
     Parameters
     ----------
@@ -54,7 +55,11 @@ class IntervalDomain:
         open_epsilon: Optional[float] = None,
     ):
         if a >= b:
-            raise ValueError(f"Left endpoint a={a} must be less than right endpoint b={b}")
+            msg = (
+                f"Left endpoint a={a} must be less than "
+                f"right endpoint b={b}"
+            )
+            raise ValueError(msg)
         self.a = float(a)
         self.b = float(b)
         self.boundary_type = boundary_type
@@ -68,9 +73,11 @@ class IntervalDomain:
             if self.open_epsilon < 0:
                 raise ValueError("open_epsilon must be non-negative")
             if self.open_epsilon >= 0.5 * (b - a):
-                raise ValueError(
-                    f"open_epsilon={open_epsilon} too large for interval of length {b - a}"
+                msg = (
+                    f"open_epsilon={open_epsilon} too large for interval "
+                    f"of length {b - a}"
                 )
+                raise ValueError(msg)
 
         # name defaults to the string representation
         if name is None:
@@ -121,8 +128,9 @@ class IntervalDomain:
         """
         Generate uniform mesh respecting boundary type.
 
-        For open/semi-open intervals, generates n points on a slightly
-        contracted interval [a+ε, b-ε] or variants, where ε = self.open_epsilon.
+          For open/semi-open intervals, generates n points on a slightly
+          contracted interval [a+ε, b-ε] or variants. The epsilon used is
+          stored in `self.open_epsilon`.
 
         Parameters
         ----------
@@ -137,23 +145,41 @@ class IntervalDomain:
         if self.boundary_type == "closed":
             return np.linspace(self.a, self.b, n, endpoint=True)
         if self.boundary_type == "open":
-            return np.linspace(self.a + self.open_epsilon, self.b - self.open_epsilon, n)
+            return np.linspace(
+                self.a + self.open_epsilon,
+                self.b - self.open_epsilon,
+                n,
+            )
         if self.boundary_type == "left_open":
-            return np.linspace(self.a + self.open_epsilon, self.b, n)
+            return np.linspace(
+                self.a + self.open_epsilon,
+                self.b,
+                n,
+            )
         if self.boundary_type == "right_open":
-            return np.linspace(self.a, self.b - self.open_epsilon, n)
+            return np.linspace(
+                self.a,
+                self.b - self.open_epsilon,
+                n,
+            )
         raise ValueError(f"Unknown boundary_type: {self.boundary_type}")
 
     def interior(self) -> "IntervalDomain":
         """Return the interior (open) version of this domain."""
         return IntervalDomain(
-            self.a, self.b, boundary_type="open", open_epsilon=self.open_epsilon
+            self.a,
+            self.b,
+            boundary_type="open",
+            open_epsilon=self.open_epsilon,
         )
 
     def closure(self) -> "IntervalDomain":
         """Return the closure (closed) version of this domain."""
         return IntervalDomain(
-            self.a, self.b, boundary_type="closed", open_epsilon=self.open_epsilon
+            self.a,
+            self.b,
+            boundary_type="closed",
+            open_epsilon=self.open_epsilon,
         )
 
     def boundary_points(self) -> Tuple[float, float]:
@@ -179,8 +205,9 @@ class IntervalDomain:
             Function to integrate.
         method : str, optional
             Integration method: 'simpson', 'trapz', or 'adaptive'.
-        support : tuple or list of tuples, optional
-            Subdomain(s) for integration. If None, integrates over entire domain.
+          support : tuple or list of tuples, optional
+              Subdomain(s) for integration. If `None`, integrates over the
+              entire domain.
         n_points : int, optional
             Number of quadrature points.
         vectorized : bool, optional
@@ -203,7 +230,11 @@ class IntervalDomain:
                 and all(isinstance(x, (int, float)) for x in support)
             )
         ):
-            subintervals = list(support)
+            # Normalize support into a list of (a, b) tuples so type
+            # checkers know each entry is a pair of floats.
+            subintervals: List[Tuple[float, float]] = [
+                tuple(s) for s in support  # type: ignore
+            ]
             if len(subintervals) == 0:
                 return 0.0
 
@@ -211,12 +242,16 @@ class IntervalDomain:
             lengths = []
             for sub in subintervals:
                 if not (isinstance(sub, (tuple, list)) and len(sub) == 2):
-                    raise ValueError("Each support entry must be a (a, b) pair")
+                    raise ValueError(
+                        "Each support entry must be a (a, b) pair"
+                    )
                 a_sub, b_sub = float(sub[0]), float(sub[1])
                 if not (self.a <= a_sub < b_sub <= self.b):
-                    raise ValueError(
-                        f"Support interval ({a_sub}, {b_sub}) outside domain [{self.a}, {self.b}]"
+                    msg = (
+                        f"Support interval ({a_sub}, {b_sub}) outside domain "
+                        f"[{self.a}, {self.b}]"
                     )
+                    raise ValueError(msg)
                 lengths.append(b_sub - a_sub)
 
             total_length = sum(lengths)
@@ -248,8 +283,12 @@ class IntervalDomain:
             total = 0.0
             for sub, n_i in zip(subintervals, alloc):
                 total += self.integrate(
-                    f, method=method, support=sub, n_points=n_i,
-                    vectorized=vectorized, **kwargs
+                    f,
+                    method=method,
+                    support=sub,
+                    n_points=n_i,
+                    vectorized=vectorized,
+                    **kwargs,
                 )
             return float(total)
 
@@ -259,9 +298,11 @@ class IntervalDomain:
         else:
             a, b = support
             if not (self.a <= a < b <= self.b):
-                raise ValueError(
-                    f"Support ({a}, {b}) outside domain [{self.a}, {self.b}]"
+                msg = (
+                    f"Support ({a}, {b}) outside domain "
+                    f"[{self.a}, {self.b}]"
                 )
+                raise ValueError(msg)
             xs = np.linspace(a, b, max(3, n_points))
 
         def eval_mesh(xs_vals: np.ndarray) -> np.ndarray:
@@ -275,7 +316,9 @@ class IntervalDomain:
                 out = f(xs_vals)
                 arr = np.asarray(out)
                 if arr.shape == ():
-                    raise ValueError("Function returned scalar for array input")
+                    raise ValueError(
+                        "Function returned scalar for array input"
+                    )
                 return arr
             except Exception:
                 return np.fromiter(
@@ -292,7 +335,7 @@ class IntervalDomain:
             try:
                 from scipy.integrate import trapezoid as trapz
             except ImportError:
-                from scipy.integrate import trapz
+                from scipy.integrate import trapz  # type: ignore
             return float(trapz(ys, x=xs))
 
         if method == "adaptive":
@@ -301,9 +344,14 @@ class IntervalDomain:
             b_int = self.b if support is None else support[1]
             return float(quad(f, a_int, b_int, **kwargs)[0])
 
-        raise ValueError(f"Unknown integration method: {method}")
+        msg = f"Unknown integration method: {method}"
+        raise ValueError(msg)
 
-    def restriction_to_subinterval(self, a: float, b: float) -> "IntervalDomain":
+    def restriction_to_subinterval(
+        self,
+        a: float,
+        b: float,
+    ) -> "IntervalDomain":
         """
         Create a subdomain restricted to [a, b].
 
@@ -318,13 +366,19 @@ class IntervalDomain:
             New domain restricted to [a, b].
         """
         if a >= b:
-            raise ValueError(f"Invalid subinterval: a={a} >= b={b}")
+            msg = f"Invalid subinterval: a={a} >= b={b}"
+            raise ValueError(msg)
         if not (self.a <= a and b <= self.b):
-            raise ValueError(
-                f"Subinterval [{a}, {b}] outside domain [{self.a}, {self.b}]"
+            msg = (
+                f"Subinterval [{a}, {b}] outside domain "
+                f"[{self.a}, {self.b}]"
             )
+            raise ValueError(msg)
         return IntervalDomain(
-            a, b, boundary_type=self.boundary_type, open_epsilon=self.open_epsilon
+            a,
+            b,
+            boundary_type=self.boundary_type,
+            open_epsilon=self.open_epsilon,
         )
 
     def split_at_discontinuities(self, discontinuity_points: list) -> list:
@@ -350,9 +404,11 @@ class IntervalDomain:
         # Validate points are in interior
         for point in disc_points:
             if not (self.a < point < self.b):
-                raise ValueError(
-                    f"Discontinuity point {point} must be in interior ({self.a}, {self.b})"
+                msg = (
+                    f"Discontinuity point {point} must be in interior "
+                    f"({self.a}, {self.b})"
                 )
+                raise ValueError(msg)
 
         # Check for duplicates
         if len(disc_points) != len(set(disc_points)):
@@ -369,16 +425,24 @@ class IntervalDomain:
             # Determine boundary types
             if i == 0:
                 if self.boundary_type in ["closed", "left_open"]:
-                    bt = "left_open" if self.boundary_type == "left_open" else "right_open"
-                else:
-                    bt = "open"
+                    if self.boundary_type == "left_open":
+                        bt = "left_open"
+                    elif self.boundary_type == "closed":
+                        bt = "right_open"
+                    else:
+                        bt = "open"
             elif i == len(boundaries) - 2:
                 bt = "left_open"
             else:
                 bt = "open"
 
             subdomains.append(
-                IntervalDomain(a_sub, b_sub, boundary_type=bt, open_epsilon=self.open_epsilon)
+                IntervalDomain(
+                    a_sub,
+                    b_sub,
+                    boundary_type=bt,
+                    open_epsilon=self.open_epsilon,
+                )
             )
 
         return subdomains

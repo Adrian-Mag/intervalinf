@@ -31,8 +31,9 @@ class Function:
     Parameters
     ----------
     space : object
-        The function space this function belongs to. Must have a `function_domain`
-        or `_function_domain` attribute returning an IntervalDomain.
+        The function space this function belongs to. Must have a
+        `function_domain` or `_function_domain` attribute returning an
+        IntervalDomain.
     coefficients : ndarray, optional
         Finite-dimensional coefficient representation.
     evaluate_callable : callable, optional
@@ -52,7 +53,7 @@ class Function:
     Examples
     --------
     >>> from intervalinf.core import IntervalDomain, Function
-    >>> # Need a space-like object (or use a real space from intervalinf.spaces)
+    >>> # Minimal example using a simple space object
     >>> domain = IntervalDomain(0, 1)
     >>> class SimpleSpace:
     ...     def __init__(self, domain):
@@ -120,7 +121,8 @@ class Function:
         x : float or array-like
             Point(s) at which to evaluate.
         check_domain : bool, optional
-            Whether to check domain membership. Defaults to True if space exists.
+            Whether to check domain membership.
+            Defaults to True if space exists.
 
         Returns
         -------
@@ -138,7 +140,8 @@ class Function:
         if check_domain and self.space is not None:
             x_array = np.asarray(x)
             if not np.all(self.function_domain.contains(x_array)):
-                raise ValueError(f"Some points not in domain {self.function_domain}")
+                msg = f"Some points not in domain {self.function_domain}"
+                raise ValueError(msg)
 
         # Handle compact support
         if self.has_compact_support:
@@ -157,11 +160,11 @@ class Function:
                     if np.any(inside_support):
                         x_inside = x_array[inside_support]
                         if self.evaluate_callable is not None:
-                            result[inside_support] = self.evaluate_callable(x_inside)
+                            tmp = self.evaluate_callable(x_inside)
+                            result[inside_support] = tmp
                         elif self.coefficients is not None:
-                            result[inside_support] = self._evaluate_from_coefficients(
-                                x_inside
-                            )
+                            tmp = self._evaluate_from_coefficients(x_inside)
+                            result[inside_support] = tmp
                     return result
 
         # Standard evaluation
@@ -321,10 +324,11 @@ class Function:
         coeffs = self.coefficients
 
         if coeffs is None or basis_functions is None:
-            raise RuntimeError(
-                "Coefficients or basis functions not available for evaluation. "
-                "The space may not have a basis defined."
+            msg = (
+                "Coefficients or basis functions not available "
+                "for evaluation. The space may not have a basis defined."
             )
+            raise RuntimeError(msg)
         if len(coeffs) != len(basis_functions):
             raise ValueError(
                 f"Coefficient length {len(coeffs)} does not match "
@@ -338,19 +342,29 @@ class Function:
 
         # Evaluate each basis function
         basis_evals = np.array(
-            [bf.evaluate(x_array, check_domain=False) for bf in basis_functions]
+            [
+                bf.evaluate(x_array, check_domain=False)
+                for bf in basis_functions
+            ]
         )
         # Linear combination
         result = np.tensordot(coeffs, basis_evals, axes=([0], [0]))
         return result[0] if is_scalar else result
 
-    def _is_zero_at(self, x: Union[float, np.ndarray]) -> Union[bool, np.ndarray]:
+    def _is_zero_at(
+        self, x: Union[float, np.ndarray]
+    ) -> Union[bool, np.ndarray]:
         """Check if function is zero at point(s) due to compact support."""
-        if not self.has_compact_support:
+        # If no compact support is specified, function is not identically zero
+        # anywhere
+        if not self.has_compact_support or self.support is None:
             return False
 
         x_array = np.asarray(x)
         is_scalar = x_array.ndim == 0
+        if is_scalar:
+            # normalize scalar to 1D array for consistent boolean operations
+            x_array = x_array.reshape(1)
 
         outside_support = np.ones_like(x_array, dtype=bool)
         for support_a, support_b in self.support:
@@ -413,34 +427,44 @@ class Function:
         elif isinstance(support, list):
             for i, interval in enumerate(support):
                 if not isinstance(interval, tuple) or len(interval) != 2:
-                    raise ValueError(f"Support interval {i} must be a tuple (a, b)")
+                    msg = f"Support interval {i} must be a tuple (a, b)"
+                    raise ValueError(msg)
                 if interval[0] >= interval[1]:
-                    raise ValueError(
-                        f"Support interval {i}: a={interval[0]} must be < b={interval[1]}"
+                    msg = (
+                        f"Support interval {i}: a={interval[0]} must be < "
+                        f"b={interval[1]}"
                     )
+                    raise ValueError(msg)
             support = sorted(support, key=lambda x: x[0])
             for i in range(len(support) - 1):
                 if support[i][1] > support[i + 1][0]:
-                    raise ValueError(
-                        f"Support intervals {support[i]} and {support[i+1]} overlap"
+                    msg = (
+                        f"Support intervals {support[i]} and "
+                        f"{support[i+1]} overlap"
                     )
+                    raise ValueError(msg)
         else:
-            raise ValueError(
-                "Support must be a tuple (a, b) or list of tuples [(a1, b1), ...]"
+            msg = (
+                "Support must be a tuple (a, b) or list of tuples "
+                "[(a1, b1), ...]"
             )
+            raise ValueError(msg)
 
         # Validate against domain
         domain = self.function_domain
         for i, (a, b) in enumerate(support):
             if not (domain.a <= a < b <= domain.b):
-                raise ValueError(
+                msg = (
                     f"Support interval {i}: ({a}, {b}) must be within "
                     f"domain [{domain.a}, {domain.b}]"
                 )
+                raise ValueError(msg)
 
         return support
 
-    def __call__(self, x: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+    def __call__(
+        self, x: Union[float, np.ndarray]
+    ) -> Union[float, np.ndarray]:
         """Allow f(x) syntax."""
         return self.evaluate(x, check_domain=None)
 
@@ -458,11 +482,14 @@ class Function:
             if support_strategy == "union":
                 new_support = self._union_supports(self.support, other.support)
             elif support_strategy == "intersect":
-                new_support = self._intersect_supports(self.support, other.support)
+                new_support = self._intersect_supports(
+                    self.support, other.support
+                )
             else:
                 new_support = None
 
-            # Use coefficient arithmetic only for linear ops with matching coefficients
+            # Use coefficient arithmetic only for linear ops with
+            # matching coefficients
             if (
                 is_linear
                 and self.coefficients is not None
@@ -476,11 +503,17 @@ class Function:
             else:
                 # Create callable-based result
                 def _get_eval_callable(fn):
-                    if getattr(fn, "evaluate_callable", None) is not None:
-                        return fn.evaluate_callable
-                    if getattr(fn, "coefficients", None) is not None:
+                    call = getattr(fn, "evaluate_callable", None)
+                    if callable(call):
+                        return call
+                    coeffs = getattr(fn, "coefficients", None)
+                    if coeffs is not None:
                         return lambda x: fn._evaluate_from_coefficients(x)
-                    return lambda x: fn.evaluate(x, check_domain=False)
+                    if hasattr(fn, "evaluate"):
+                        return lambda x: fn.evaluate(x, check_domain=False)
+                    raise RuntimeError(
+                        "Cannot obtain a callable to evaluate the operand"
+                    )
 
                 eval_self = _get_eval_callable(self)
                 eval_other = _get_eval_callable(other)
@@ -489,7 +522,9 @@ class Function:
                     return op(eval_self(x), eval_other(x))
 
                 return self.__class__(
-                    self.space, evaluate_callable=op_callable, support=new_support
+                    self.space,
+                    evaluate_callable=op_callable,
+                    support=new_support,
                 )
 
         elif scalar_allowed and isinstance(other, numbers.Number):
@@ -498,32 +533,42 @@ class Function:
                 return op(self.evaluate(x), other)
 
             return self.__class__(
-                self.space, evaluate_callable=scalar_op_callable, support=self.support
+                self.space,
+                evaluate_callable=scalar_op_callable,
+                support=self.support,
             )
         else:
-            raise TypeError(
+            msg = (
                 f"Cannot {op_name} Function with {type(other).__name__}. "
-                f"Expected Function or scalar."
+                "Expected Function or scalar."
             )
+            raise TypeError(msg)
 
     def __add__(self, other):
-        return self._binary_op(other, operator.add, "add", support_strategy="union")
+        return self._binary_op(
+            other, operator.add, "add", support_strategy="union"
+        )
 
     def __radd__(self, other):
         return self.__add__(other)
 
     def __sub__(self, other):
-        return self._binary_op(other, operator.sub, "subtract", support_strategy="union")
+        return self._binary_op(
+            other, operator.sub, "subtract", support_strategy="union"
+        )
 
     def __rsub__(self, other):
         # other - self
         if isinstance(other, numbers.Number):
 
             def rsub_callable(x):
-                return other - self.evaluate(x)
+                # ensure numeric/array-compatible subtraction
+                return np.asarray(other) - np.asarray(self.evaluate(x))
 
             return self.__class__(
-                self.space, evaluate_callable=rsub_callable, support=self.support
+                self.space,
+                evaluate_callable=rsub_callable,
+                support=self.support,
             )
         return NotImplemented
 
@@ -565,7 +610,7 @@ class Function:
         else:
 
             def neg_callable(x):
-                return -self.evaluate_callable(x)
+                return -self.evaluate(x, check_domain=False)
 
             return self.__class__(
                 self.space,
@@ -607,11 +652,14 @@ class Function:
             else restricted_space.function_domain
         )
 
-        if not (orig_domain.a <= rest_domain.a and rest_domain.b <= orig_domain.b):
-            raise ValueError(
+        if not (
+            orig_domain.a <= rest_domain.a and rest_domain.b <= orig_domain.b
+        ):
+            msg = (
                 f"Restricted domain {rest_domain} is not a subset of "
                 f"original domain {orig_domain}"
             )
+            raise ValueError(msg)
 
         return Function(
             restricted_space,
