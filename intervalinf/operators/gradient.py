@@ -82,7 +82,7 @@ class Gradient(LinearOperator):
 
     def _safe_eval(self, func: Function, x: np.ndarray) -> np.ndarray:
         """Evaluate Function `func` on array x safely.
-        
+
         x can be 1D or 2D array. For 2D, evaluates each point.
         """
         try:

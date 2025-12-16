@@ -1,7 +1,7 @@
 # intervalinf Migration Status
 
-**Last Updated:** December 16, 2025  
-**Current Phase:** Phase 3 COMPLETED, Phase 4 next  
+**Last Updated:** December 16, 2025
+**Current Phase:** Phase 3 COMPLETED, Phase 4 next
 **Tests Passing:** 231
 
 ## Project Overview
@@ -85,7 +85,7 @@ We are extracting the `interval` module from `pygeoinf` into a standalone packag
 
 **Tasks:**
 1. Update `create_basis_provider()` in `lebesgue.py` to import from `intervalinf.providers`
-2. Update the basis initialization in `Lebesgue.__init__()` 
+2. Update the basis initialization in `Lebesgue.__init__()`
 3. Add tests for basis functionality
 4. Test that `Lebesgue(100, domain, basis='sine')` works
 
