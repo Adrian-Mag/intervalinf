@@ -1,3 +1,5 @@
 """Utilities module."""
 
-__all__ = []
+from intervalinf.utils.robin_utils import RobinRootFinder
+
+__all__ = ['RobinRootFinder']

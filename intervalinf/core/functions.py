@@ -100,6 +100,10 @@ class Function:
     @property
     def function_domain(self) -> "IntervalDomain":
         """Get the IntervalDomain from the space."""
+        from .domain import IntervalDomain
+        # If space is already an IntervalDomain, return it directly
+        if isinstance(self.space, IntervalDomain):
+            return self.space
         # Support both _function_domain and function_domain attributes
         if hasattr(self.space, "_function_domain"):
             return self.space._function_domain
