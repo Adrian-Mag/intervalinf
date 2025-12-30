@@ -353,6 +353,27 @@ class Lebesgue(HilbertSpace):
         """
         return self._continuous_l2_inner_product(u, v)
 
+    def distance(self, u: 'Function', v: 'Function') -> float:
+        """
+        Compute the L² distance between two functions.
+
+        The distance is defined as ||u - v|| = sqrt(⟨u-v, u-v⟩).
+
+        Args:
+            u, v: Functions in this space.
+
+        Returns:
+            The L² distance ||u - v||.
+
+        Example:
+            >>> space = Lebesgue(domain, basis_functions)
+            >>> f = Function(domain, lambda x: x)
+            >>> g = Function(domain, lambda x: x + 1)
+            >>> dist = space.distance(f, g)  # ||f - g||
+        """
+        diff = self.subtract(u, v)
+        return self.norm(diff)
+
     @property
     def metric(self) -> np.ndarray:
         """
