@@ -20,7 +20,9 @@ if TYPE_CHECKING:
     from intervalinf.core.functions import Function
 
 
-class BumpFunctionProvider(ParametricFunctionProvider, IndexedFunctionProvider):
+class BumpFunctionProvider(
+    ParametricFunctionProvider, IndexedFunctionProvider
+):
     """
     Provider for smooth bump functions with compact support.
 
@@ -40,7 +42,7 @@ class BumpFunctionProvider(ParametricFunctionProvider, IndexedFunctionProvider):
 
     def __init__(
         self,
-        space,
+        space_or_domain,
         default_width: float = 0.2,
         centers: Optional[np.ndarray] = None,
         default_k: float = 1.0
@@ -49,13 +51,13 @@ class BumpFunctionProvider(ParametricFunctionProvider, IndexedFunctionProvider):
         Initialize bump function provider.
 
         Args:
-            space: Lebesgue instance (contains domain information)
+            space_or_domain: Space or IntervalDomain
             default_width: Default width for indexed access (as fraction of
                           domain)
             centers: Optional array of centers for indexed access
             default_k: Shape parameter (higher values = more concentrated)
         """
-        super().__init__(space)
+        super().__init__(space_or_domain)
         self.default_width = default_width
         self.centers = np.asarray(centers) if centers is not None else None
         self.default_k = default_k
@@ -118,7 +120,7 @@ class BumpFunctionProvider(ParametricFunctionProvider, IndexedFunctionProvider):
             return result / normalization_constant
 
         return Function(
-            self.space,
+            self.function_context,
             evaluate_callable=normalized_bump_func,
             name=f'bump_center_{center:.3f}_width_{width:.3f}_k_{k:.3f}',
             support=(a_support, b_support)
@@ -215,7 +217,7 @@ class BumpFunctionGradientProvider(ParametricFunctionProvider,
 
     def __init__(
         self,
-        space,
+        space_or_domain,
         default_width: float = 0.2,
         default_k: float = 1.0,
         centers: Optional[List[float]] = None
@@ -224,16 +226,16 @@ class BumpFunctionGradientProvider(ParametricFunctionProvider,
         Initialize the bump function gradient provider.
 
         Args:
-            space: Function space for the gradients
+            space_or_domain: Space or IntervalDomain
             default_width: Default width for bump functions
             default_k: Default shape parameter k
             centers: Optional list of predetermined centers
         """
-        super().__init__(space)
+        super().__init__(space_or_domain)
         self.default_width = default_width
         self.default_k = default_k
         self.centers = centers
-        self._domain = space.function_domain
+        self._local_domain = self.domain
         self._cache = {}
 
         centers_array = None
@@ -241,13 +243,13 @@ class BumpFunctionGradientProvider(ParametricFunctionProvider,
             centers_array = np.array(centers)
 
         self._bump_provider = BumpFunctionProvider(
-            space, default_width=default_width,
+            space_or_domain, default_width=default_width,
             centers=centers_array, default_k=default_k
         )
 
     def get_default_parameters(self) -> Dict[str, Any]:
         """Get default parameters for bump function gradient."""
-        a, b = self._domain.a, self._domain.b
+        a, b = self._local_domain.a, self._local_domain.b
         default_center = (a + b) / 2.0
 
         return {
@@ -306,7 +308,7 @@ class BumpFunctionGradientProvider(ParametricFunctionProvider,
             return result
 
         return Function(
-            self.space,
+            self.function_context,
             evaluate_callable=bump_gradient_func,
             name=f'bump_gradient_center_{center:.3f}_k_{k:.3f}',
             support=(a_support, b_support)
@@ -328,7 +330,7 @@ class BumpFunctionGradientProvider(ParametricFunctionProvider,
         cache_key = (index, k)
 
         if cache_key not in self._cache:
-            a, b = self._domain.a, self._domain.b
+            a, b = self._local_domain.a, self._local_domain.b
             domain_length = b - a
 
             if self.centers is not None:
@@ -372,6 +374,6 @@ class BumpFunctionGradientProvider(ParametricFunctionProvider,
         if self.centers is not None:
             return len(self.centers)
         else:
-            a, b = self._domain.a, self._domain.b
+            a, b = self._local_domain.a, self._local_domain.b
             domain_length = b - a
             return max(1, int(domain_length / self.default_width))

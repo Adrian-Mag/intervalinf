@@ -20,7 +20,9 @@ if TYPE_CHECKING:
     from intervalinf.core.functions import Function
 
 
-class BoxCarFunctionProvider(ParametricFunctionProvider, IndexedFunctionProvider):
+class BoxCarFunctionProvider(
+    ParametricFunctionProvider, IndexedFunctionProvider
+):
     """
     Provider for box-car (rectangular/step) functions.
 
@@ -35,7 +37,7 @@ class BoxCarFunctionProvider(ParametricFunctionProvider, IndexedFunctionProvider
 
     def __init__(
         self,
-        space,
+        space_or_domain,
         default_width: float = 0.2,
         centers: Optional[np.ndarray] = None,
         default_height: float = 1.0,
@@ -45,14 +47,14 @@ class BoxCarFunctionProvider(ParametricFunctionProvider, IndexedFunctionProvider
         Initialize box-car function provider.
 
         Args:
-            space: Lebesgue instance (contains domain information)
+            space_or_domain: Space or IntervalDomain
             default_width: Default width for indexed access (as fraction of
                           domain)
             centers: Optional array of centers for indexed access
             default_height: Default height of the box-car function
             normalize: If True, normalize so integral equals 1
         """
-        super().__init__(space)
+        super().__init__(space_or_domain)
         self.default_width = default_width
         self.centers = np.asarray(centers) if centers is not None else None
         self.default_height = default_height
@@ -98,7 +100,7 @@ class BoxCarFunctionProvider(ParametricFunctionProvider, IndexedFunctionProvider
 
         name_suffix = "_normalized" if normalize else f"_h{height:.3f}"
         return Function(
-            self.space,
+            self.function_context,
             evaluate_callable=boxcar_func,
             name=f'boxcar_c{center:.3f}_w{width:.3f}{name_suffix}',
             support=(a_support, b_support)
@@ -187,15 +189,15 @@ class DiscontinuousFunctionProvider(RandomFunctionProvider):
     and jump sizes.
     """
 
-    def __init__(self, space, random_state=None):
+    def __init__(self, space_or_domain, random_state=None):
         """
         Initialize discontinuous function provider.
 
         Args:
-            space: Lebesgue instance (contains domain information)
+            space_or_domain: Space or IntervalDomain
             random_state: Random seed for reproducibility
         """
-        super().__init__(space, random_state)
+        super().__init__(space_or_domain, random_state)
 
     def get_random_function(
         self,
@@ -239,7 +241,7 @@ class DiscontinuousFunctionProvider(RandomFunctionProvider):
             return result
 
         return Function(
-            self.space,
+            self.function_context,
             evaluate_callable=discontinuous_func,
             name=f'discontinuous_{n_discontinuities}'
         )

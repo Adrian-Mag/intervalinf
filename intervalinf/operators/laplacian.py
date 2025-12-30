@@ -51,7 +51,7 @@ class Laplacian(SpectralOperator):
         dofs: Optional[int] = None,
         fd_order: int = 2,
         n_samples: int = 512,
-        integration_config: IntegrationConfig = None,
+        integration_config: Optional[IntegrationConfig] = None,
     ):
         """
         Initialize the negative Laplacian operator.
@@ -113,8 +113,8 @@ class Laplacian(SpectralOperator):
 
     def _setup_finite_difference(self):
         """Setup finite difference discretization."""
-        a = self._domain.function_domain.a
-        b = self._domain.function_domain.b
+        a = self._domain.function_domain.a  # type: ignore[attr-defined]
+        b = self._domain.function_domain.b  # type: ignore[attr-defined]
         self._x_grid = np.linspace(a, b, self._dofs)
         self._dx = (b - a) / (self._dofs - 1)
         self._fd_matrix = self._create_fd_matrix()
@@ -213,17 +213,17 @@ class Laplacian(SpectralOperator):
 
     def _apply_spectral_fast(self, f: Function) -> Function:
         """Apply Laplacian using fast transforms."""
-        domain_interval = self._domain.function_domain
+        domain_interval = self._domain.function_domain  # type: ignore
         domain_tuple = (domain_interval.a, domain_interval.b)
         domain_length = domain_interval.b - domain_interval.a
+        bc_type = self._boundary_conditions.type  # type: ignore[arg-type]
 
         f_samples = create_uniform_samples(
-            f, domain_tuple, self._n_samples,
-            self._boundary_conditions.type
+            f, domain_tuple, self._n_samples, bc_type  # type: ignore
         )
 
         coefficients = fast_spectral_coefficients(
-            f_samples, self._boundary_conditions.type, domain_length,
+            f_samples, bc_type, domain_length,  # type: ignore
             self._dofs
         )
 
@@ -262,8 +262,8 @@ class Laplacian(SpectralOperator):
         if not isinstance(restricted_space, (Lebesgue, Sobolev)):
             raise TypeError("restricted_space must be Lebesgue or Sobolev")
 
-        orig_domain = self.domain.function_domain
-        rest_domain = restricted_space.function_domain
+        orig_domain = self.domain.function_domain  # type: ignore
+        rest_domain = restricted_space.function_domain  # type: ignore
 
         if not (orig_domain.a <= rest_domain.a and
                 rest_domain.b <= orig_domain.b):
@@ -272,13 +272,15 @@ class Laplacian(SpectralOperator):
                 f"in original domain {orig_domain}"
             )
 
-        bcs_to_use = new_bcs if new_bcs is not None else self._boundary_conditions
+        bcs_to_use = (
+            new_bcs if new_bcs is not None else self._boundary_conditions
+        )
 
         return Laplacian(
             restricted_space,
             bcs_to_use,
             self._alpha,
-            method=self._method,
+            method=self._method,  # type: ignore[arg-type]
             dofs=self._dofs,
             fd_order=self._fd_order,
             n_samples=self._n_samples,
@@ -307,7 +309,7 @@ class InverseLaplacian(SpectralOperator):
         dofs: int = 100,
         fem_type: str = "hat",
         n_samples: int = 512,
-        integration_config: IntegrationConfig = None,
+        integration_config: Optional[IntegrationConfig] = None,
     ):
         """
         Initialize the Laplacian inverse operator.
@@ -375,9 +377,9 @@ class InverseLaplacian(SpectralOperator):
 
     def _initialize_fem_solver(self):
         self._fem_solver = GeneralFEMSolver(
-            function_domain=self._domain._function_domain,
+            function_domain=self._domain._function_domain,  # type: ignore
             dofs=self._dofs,
-            operator_domain=self._domain,
+            operator_domain=self._domain,  # type: ignore
             boundary_conditions=self._boundary_conditions
         )
 
@@ -387,6 +389,8 @@ class InverseLaplacian(SpectralOperator):
             return self._apply_fem(f)
         elif self._method == 'spectral':
             return self._apply_spectral(f)
+        else:
+            raise ValueError(f"Unknown method '{self._method}'")
 
     def _apply_spectral(self, f: Function) -> Function:
         """Apply inverse Laplacian using spectral method."""
@@ -397,32 +401,32 @@ class InverseLaplacian(SpectralOperator):
 
     def _apply_spectral_fast(self, f: Function) -> Function:
         """Apply inverse Laplacian using fast transforms."""
-        domain_interval = self._domain.function_domain
+        domain_interval = self._domain.function_domain  # type: ignore
         domain_tuple = (domain_interval.a, domain_interval.b)
         domain_length = domain_interval.b - domain_interval.a
+        bc_type = self._boundary_conditions.type  # type: ignore[arg-type]
 
-        if (self._boundary_conditions.type == 'neumann' or
-                self._boundary_conditions.type == 'periodic'):
+        if bc_type == 'neumann' or bc_type == 'periodic':
             f_samples = create_uniform_samples(
-                f, domain_tuple, self._n_samples + 1,
-                self._boundary_conditions.type
+                f, domain_tuple,  # type: ignore
+                self._n_samples + 1, bc_type
             )
             coefficients = fast_spectral_coefficients(
-                f_samples, self._boundary_conditions.type,
+                f_samples, bc_type,  # type: ignore
                 domain_length, self._dofs + 1
             )
         else:
             f_samples = create_uniform_samples(
                 f, domain_tuple, self._n_samples,
-                self._boundary_conditions.type
+                bc_type  # type: ignore
             )
             coefficients = fast_spectral_coefficients(
-                f_samples, self._boundary_conditions.type,
+                f_samples, bc_type,  # type: ignore
                 domain_length, self._dofs
             )
 
-        if (self._boundary_conditions.type == 'neumann' or
-                self._boundary_conditions.type == 'periodic'):
+        bc_type = self._boundary_conditions.type
+        if bc_type == 'neumann' or bc_type == 'periodic':
             coefficients = coefficients[1:]
 
         terms = compute_spectral_coefficients_fast(
@@ -473,16 +477,17 @@ class InverseLaplacian(SpectralOperator):
 
     def restrict(self, restricted_space, new_bcs=None):
         """Restrict InverseLaplacian operator to a subspace."""
-        restricted_domain = restricted_space.function_domain
-        if not self._domain.function_domain.contains(restricted_domain.a):
+        restricted_domain = restricted_space.function_domain  # type: ignore
+        orig_domain = self._domain.function_domain  # type: ignore
+        if not orig_domain.contains(restricted_domain.a):
             raise ValueError(
                 f"Restricted domain {restricted_domain} is not a subdomain "
-                f"of original domain {self._domain.function_domain}"
+                f"of original domain {orig_domain}"
             )
-        if not self._domain.function_domain.contains(restricted_domain.b):
+        if not orig_domain.contains(restricted_domain.b):
             raise ValueError(
                 f"Restricted domain {restricted_domain} is not a subdomain "
-                f"of original domain {self._domain.function_domain}"
+                f"of original domain {orig_domain}"
             )
 
         bcs_to_use = (new_bcs if new_bcs is not None
@@ -492,7 +497,7 @@ class InverseLaplacian(SpectralOperator):
             restricted_space,
             bcs_to_use,
             self._alpha,
-            method=self._method,
+            method=self._method,  # type: ignore[arg-type]
             dofs=self._dofs,
             fem_type=self._fem_type,
             n_samples=self._n_samples,

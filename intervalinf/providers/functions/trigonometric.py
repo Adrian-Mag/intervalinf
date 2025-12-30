@@ -33,9 +33,9 @@ class SineFunctionProvider(IndexedFunctionProvider):
     Normalized: ||φₖ||₂ = 1 with φₖ(x) = √(2/L) sin(kπ(x-a)/L)
     """
 
-    def __init__(self, space):
+    def __init__(self, space_or_domain):
         """Initialize the sine function provider."""
-        super().__init__(space)
+        super().__init__(space_or_domain)
         self._cache = {}
 
     def get_function_by_index(self, index: int, **kwargs) -> 'Function':
@@ -43,7 +43,7 @@ class SineFunctionProvider(IndexedFunctionProvider):
         if index not in self._cache:
             from intervalinf.core.functions import Function
 
-            a, b = self.space.function_domain.a, self.space.function_domain.b
+            a, b = self.domain.a, self.domain.b
             length = b - a
             k = index + 1  # Sine functions start from k=1
             normalization = np.sqrt(2 / length)
@@ -59,7 +59,7 @@ class SineFunctionProvider(IndexedFunctionProvider):
                     )
 
             func = Function(
-                self.space,
+                self.function_context,
                 evaluate_callable=sine_func,
                 name=f"sin({k}π(x-{a})/{length})"
             )
@@ -80,15 +80,15 @@ class CosineFunctionProvider(IndexedFunctionProvider):
         φₖ(x) = √(2/L) cos(kπ(x-a)/L) for k≥1
     """
 
-    def __init__(self, space, non_constant_only: bool = False):
+    def __init__(self, space_or_domain, non_constant_only: bool = False):
         """
         Initialize the cosine function provider.
 
         Args:
-            space: Lebesgue instance (contains domain information)
+            space_or_domain: Space or IntervalDomain
             non_constant_only: If True, skip constant mode (start at k=1)
         """
-        super().__init__(space)
+        super().__init__(space_or_domain)
         self._cache = {}
         self.non_constant_only = non_constant_only
 
@@ -100,7 +100,7 @@ class CosineFunctionProvider(IndexedFunctionProvider):
             index += 1
 
         if index not in self._cache:
-            a, b = self.space.function_domain.a, self.space.function_domain.b
+            a, b = self.domain.a, self.domain.b
             length = b - a
 
             if index == 0:
@@ -110,7 +110,7 @@ class CosineFunctionProvider(IndexedFunctionProvider):
                              else 1.0) / np.sqrt(length))
 
                 func = Function(
-                    self.space,
+                    self.function_context,
                     evaluate_callable=constant_func,
                     name="1 (constant)"
                 )
@@ -129,7 +129,7 @@ class CosineFunctionProvider(IndexedFunctionProvider):
                         )
 
                 func = Function(
-                    self.space,
+                    self.function_context,
                     evaluate_callable=cosine_func,
                     name=f"cos({k}π(x-{a})/{length})"
                 )
@@ -152,15 +152,15 @@ class FourierFunctionProvider(IndexedFunctionProvider):
         etc.
     """
 
-    def __init__(self, space, non_constant_only: bool = False):
+    def __init__(self, space_or_domain, non_constant_only: bool = False):
         """
         Initialize Fourier provider.
 
         Args:
-            space: Lebesgue instance
+            space_or_domain: Space or IntervalDomain
             non_constant_only: If True, skip constant function
         """
-        super().__init__(space)
+        super().__init__(space_or_domain)
         self.non_constant_only = non_constant_only
         self._cache = {}
 
@@ -182,7 +182,7 @@ class FourierFunctionProvider(IndexedFunctionProvider):
                 return np.ones_like(x) / np.sqrt(L)
 
             func = Function(
-                self.space,
+                self.function_context,
                 evaluate_callable=const_func,
                 name='fourier_const'
             )
@@ -195,9 +195,8 @@ class FourierFunctionProvider(IndexedFunctionProvider):
                             * np.cos(2 * k * np.pi * (x - a) / L))
 
                 func = Function(
-                    self.space,
+                    self.function_context,
                     evaluate_callable=cosine_func,
-                    name=f'fourier_cos_{k}'
                 )
             else:  # Even index: sine
                 def sine_func(x):
@@ -205,7 +204,7 @@ class FourierFunctionProvider(IndexedFunctionProvider):
                             * np.sin(2 * k * np.pi * (x - a) / L))
 
                 func = Function(
-                    self.space,
+                    self.function_context,
                     evaluate_callable=sine_func,
                     name=f'fourier_sin_{k}'
                 )
@@ -222,8 +221,8 @@ class MixedDNFunctionProvider(IndexedFunctionProvider):
     Eigenfunctions: φₖ(x) = √(2/L) · sin((k+1/2)π(x-a)/L), k≥0
     """
 
-    def __init__(self, space):
-        super().__init__(space)
+    def __init__(self, space_or_domain):
+        super().__init__(space_or_domain)
         self._cache = {}
 
     def get_function_by_index(self, index: int, **kwargs) -> 'Function':
@@ -243,7 +242,7 @@ class MixedDNFunctionProvider(IndexedFunctionProvider):
                 return c * np.sin(mu * y)
 
             func = Function(
-                self.space,
+                self.function_context,
                 evaluate_callable=phi,
                 name=f"mixed_DN_k{index}"
             )
@@ -260,8 +259,8 @@ class MixedNDFunctionProvider(IndexedFunctionProvider):
     Eigenfunctions: φₖ(x) = √(2/L) · cos((k+1/2)π(x-a)/L), k≥0
     """
 
-    def __init__(self, space):
-        super().__init__(space)
+    def __init__(self, space_or_domain):
+        super().__init__(space_or_domain)
         self._cache = {}
 
     def get_function_by_index(self, index: int, **kwargs) -> 'Function':
@@ -281,7 +280,7 @@ class MixedNDFunctionProvider(IndexedFunctionProvider):
                 return c * np.cos(mu * y)
 
             func = Function(
-                self.space,
+                self.function_context,
                 evaluate_callable=phi,
                 name=f"mixed_ND_k{index}"
             )
@@ -304,7 +303,7 @@ class RobinFunctionProvider(IndexedFunctionProvider):
 
     def __init__(
         self,
-        space,
+        space_or_domain,
         bcs,
         integration_method: str = 'simpson',
         n_points: int = 2000,
@@ -315,14 +314,14 @@ class RobinFunctionProvider(IndexedFunctionProvider):
         Initialize Robin function provider.
 
         Args:
-            space: Lebesgue instance
+            space_or_domain: Space or IntervalDomain
             bcs: BoundaryConditions object with Robin parameters
             integration_method: Method for L² normalization
             n_points: Number of points for integration
             root_tol: Tolerance for root finding
             max_bisect_iter: Maximum bisection iterations
         """
-        super().__init__(space)
+        super().__init__(space_or_domain)
         self.alpha0 = float(bcs.get_parameter('left_alpha'))
         self.beta0 = float(bcs.get_parameter('left_beta'))
         self.alphaL = float(bcs.get_parameter('right_alpha'))
@@ -360,7 +359,7 @@ class RobinFunctionProvider(IndexedFunctionProvider):
                         / math.sqrt(L))
 
             f0 = Function(
-                self.space,
+                self.function_context,
                 evaluate_callable=const,
                 name="robin_constant"
             )
@@ -378,7 +377,7 @@ class RobinFunctionProvider(IndexedFunctionProvider):
             return A * np.cos(mu * y) + B * np.sin(mu * y)
 
         # Normalize in L²(a,b)
-        raw_func = Function(self.space, evaluate_callable=raw)
+        raw_func = Function(self.function_context, evaluate_callable=raw)
         norm2 = (raw_func * raw_func).integrate(
             method=self.integration_method,
             n_points=self.n_points
@@ -389,7 +388,7 @@ class RobinFunctionProvider(IndexedFunctionProvider):
             return c * raw(x)
 
         f = Function(
-            self.space,
+            self.function_context,
             evaluate_callable=phi,
             name=f"robin_mu={mu:.8g}"
         )

@@ -9,14 +9,40 @@ Hierarchy:
 - Level 1 (eigenvalues.py): Simple eigenvalue providers
 - Level 2 (functions/): Concrete function providers
 - Level 3+ (laplacian.py, radial.py): Composite providers
+
+Providers can be initialized with either:
+- A function space (traditional mode): Functions are attached to the space
+- An IntervalDomain (standalone mode): Functions are created standalone
+
+This flexibility solves the bootstrapping problem where basis functions
+needed a space, but the space needed basis functions to exist.
 """
 
 import numpy as np
 from abc import ABC, abstractmethod
-from typing import Optional, Any, Dict, List, Union, TYPE_CHECKING
+from typing import Optional, Any, Dict, List, Union, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from intervalinf.core.functions import Function
+    from intervalinf.core.domain import IntervalDomain
+
+
+def _is_interval_domain(obj) -> bool:
+    """Check if object is an IntervalDomain (avoids circular import)."""
+    return type(obj).__name__ == 'IntervalDomain'
+
+
+def _get_domain(space_or_domain) -> 'IntervalDomain':
+    """Extract domain from space or return domain directly."""
+    if _is_interval_domain(space_or_domain):
+        return space_or_domain
+    if hasattr(space_or_domain, "_function_domain"):
+        return space_or_domain._function_domain
+    if hasattr(space_or_domain, "function_domain"):
+        return space_or_domain.function_domain
+    raise AttributeError(
+        f"Cannot extract domain from {type(space_or_domain).__name__}"
+    )
 
 
 # =============================================================================
@@ -29,28 +55,77 @@ class FunctionProvider(ABC):
     Abstract base class for function providers.
 
     Function providers create Function objects from various families
-    with a composable, lazy approach. All providers require explicit
-    space specification from the user.
+    with a composable, lazy approach.
+
+    Providers can be initialized with either:
+    - A function space: Created functions are attached to the space
+    - An IntervalDomain: Created functions are standalone (unattached)
+
+    This dual-mode design solves the bootstrapping problem where basis
+    functions previously needed a space to exist, but the space needed
+    basis functions.
+
+    Attributes:
+        space_or_domain: The space or domain passed to constructor
+        domain: The IntervalDomain (always available)
+        space: The function space (None if initialized with domain only)
+        is_standalone: True if initialized with domain only
     """
 
-    def __init__(self, space):
+    def __init__(self, space_or_domain):
         """
         Initialize provider.
 
         Args:
-            space: Lebesgue instance (contains domain information)
+            space_or_domain: Either a function space (Lebesgue, Sobolev, etc.)
+                or an IntervalDomain. If domain, created functions will be
+                standalone. If space, functions will be attached to it.
+
+        Raises:
+            ValueError: If space_or_domain is None
         """
-        if space is None:
+        if space_or_domain is None:
             raise ValueError(
-                f"Space must be provided to {self.__class__.__name__}. "
-                "Space cannot be None."
+                (
+                    "Space or domain must be "
+                    f"provided to {self.__class__.__name__}. "
+                    "Cannot be None."
+                )
             )
-        self.space = space
+
+        self._space_or_domain = space_or_domain
+        self._is_standalone = _is_interval_domain(space_or_domain)
 
     @property
-    def domain(self):
-        """Get the domain from the space."""
-        return self.space.function_domain
+    def domain(self) -> 'IntervalDomain':
+        """Get the IntervalDomain (always available)."""
+        return _get_domain(self._space_or_domain)
+
+    @property
+    def space(self):
+        """
+        Get the function space (None if standalone mode).
+
+        Use this when you need space-specific operations.
+        """
+        if self._is_standalone:
+            return None
+        return self._space_or_domain
+
+    @property
+    def is_standalone(self) -> bool:
+        """True if provider creates standalone (unattached) functions."""
+        return self._is_standalone
+
+    @property
+    def function_context(self):
+        """
+        Get the context to pass to Function constructor.
+
+        Returns the space if available, otherwise the domain.
+        This is what should be passed as the first argument to Function().
+        """
+        return self._space_or_domain
 
 
 class IndexedFunctionProvider(FunctionProvider):
@@ -96,16 +171,17 @@ class RestrictedFunctionProvider(IndexedFunctionProvider):
     def __init__(
         self,
         original_provider: IndexedFunctionProvider,
-        restricted_space
+        restricted_space_or_domain
     ):
         """
         Initialize restricted provider.
 
         Args:
             original_provider: The provider to restrict
-            restricted_space: The target space for restrictions
+            restricted_space_or_domain: The target space or domain for
+                restrictions
         """
-        super().__init__(restricted_space)
+        super().__init__(restricted_space_or_domain)
         self.original_provider = original_provider
 
     def get_function_by_index(self, index: int, **kwargs) -> 'Function':
@@ -113,7 +189,7 @@ class RestrictedFunctionProvider(IndexedFunctionProvider):
         original_func = self.original_provider.get_function_by_index(
             index, **kwargs
         )
-        return original_func.restrict(self.space)
+        return original_func.restrict(self._space_or_domain)
 
 
 class ParametricFunctionProvider(FunctionProvider):
@@ -184,7 +260,18 @@ class NullFunctionProvider(IndexedFunctionProvider):
 
     def get_function_by_index(self, index: int, **kwargs) -> 'Function':
         """Return zero function regardless of index."""
-        return self.space.zero
+        from intervalinf.core.functions import Function
+
+        if self.space is not None:
+            return self.space.zero
+        else:
+            # Standalone mode: create zero function on domain
+            return Function(
+                self.domain,
+                evaluate_callable=lambda x: np.zeros_like(
+                    np.asarray(x), dtype=float
+                )
+            )
 
 
 # =============================================================================
@@ -233,7 +320,9 @@ class CustomEigenvalueProvider(EigenvalueProvider):
     Allows users to provide their own eigenvalue array or callable.
     """
 
-    def __init__(self, eigenvalues: Union[np.ndarray, list, callable]):
+    def __init__(
+        self, eigenvalues: Union[np.ndarray, list, Callable[[int], float]]
+    ):
         """
         Initialize with eigenvalue array or callable.
 
@@ -252,10 +341,13 @@ class CustomEigenvalueProvider(EigenvalueProvider):
         if self._eigenvalue_func is not None:
             return float(self._eigenvalue_func(index))
 
-        if not (0 <= index < len(self._eigenvalues)):
+        if (
+            self._eigenvalues is None
+            or not (0 <= index < len(self._eigenvalues))
+        ):
             raise IndexError(
                 f"Eigenvalue index {index} out of range "
-                f"[0, {len(self._eigenvalues)})"
+                f"[0, {len(self._eigenvalues) if self._eigenvalues is not None else 0})"  # noqa
             )
         return float(self._eigenvalues[index])
 

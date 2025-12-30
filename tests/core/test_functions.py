@@ -607,3 +607,191 @@ class TestFunctionRepr:
         f = Function(space, evaluate_callable=np.sin, name="sine")
         r = repr(f)
         assert "sine" in r
+
+
+# =============================================================================
+# New tests for standalone (domain-only) functions
+# =============================================================================
+
+
+class TestStandaloneFunction:
+    """Test Function creation directly on a domain (without space)."""
+
+    @pytest.fixture
+    def domain(self):
+        return IntervalDomain(0, 1)
+
+    def test_create_standalone_function(self, domain):
+        """Test creating function directly on domain."""
+        f = Function(domain, evaluate_callable=lambda x: x**2)
+        assert f.is_attached is False
+        assert f.space is None
+        assert f.function_domain == domain
+
+    def test_standalone_evaluate(self, domain):
+        """Test standalone function can be evaluated."""
+        f = Function(domain, evaluate_callable=np.sin)
+        x = np.linspace(0, 1, 10)
+        np.testing.assert_allclose(f(x), np.sin(x))
+
+    def test_standalone_single_point(self, domain):
+        """Test standalone evaluation at single point."""
+        f = Function(domain, evaluate_callable=lambda x: 2*x + 1)
+        assert f(0.5) == 2.0
+
+    def test_standalone_coefficients_rejected(self, domain):
+        """Test that coefficient-based functions require a space."""
+        with pytest.raises(ValueError, match="Coefficient-based"):
+            Function(domain, coefficients=np.array([1, 2, 3]))
+
+    def test_standalone_integrate(self, domain):
+        """Test standalone function integration."""
+        f = Function(domain, evaluate_callable=lambda x: x)
+        result = f.integrate(method="simpson", n_points=1000)
+        np.testing.assert_allclose(result, 0.5, rtol=1e-6)
+
+    def test_standalone_copy(self, domain):
+        """Test copying standalone function."""
+        f = Function(domain, evaluate_callable=np.cos, name="cosine")
+        f2 = f.copy()
+        assert f2.is_attached is False
+        assert f2.function_domain == domain
+        assert f2.name == "cosine"
+        np.testing.assert_allclose(f(0.5), f2(0.5))
+
+
+class TestFunctionAttachment:
+    """Test attaching standalone functions to spaces."""
+
+    @pytest.fixture
+    def domain(self):
+        return IntervalDomain(0, 1)
+
+    @pytest.fixture
+    def space(self):
+        return MockSpace(IntervalDomain(0, 1))
+
+    def test_attach_to_space(self, domain, space):
+        """Test attaching standalone function to a space."""
+        f = Function(domain, evaluate_callable=lambda x: x**2)
+        assert f.is_attached is False
+
+        f_attached = f.attach_to_space(space)
+        assert f_attached.is_attached is True
+        assert f_attached.space is space
+        # Original unchanged
+        assert f.is_attached is False
+
+    def test_attach_in_place(self, domain, space):
+        """Test in-place attachment."""
+        f = Function(domain, evaluate_callable=np.sin)
+        f.attach_to_space(space, copy=False)
+        assert f.is_attached is True
+        assert f.space is space
+
+    def test_attach_preserves_evaluation(self, domain, space):
+        """Test that attachment preserves function values."""
+        f = Function(domain, evaluate_callable=lambda x: x**3)
+        f_attached = f.attach_to_space(space)
+        x = np.linspace(0, 1, 20)
+        np.testing.assert_allclose(f(x), f_attached(x))
+
+    def test_attach_domain_mismatch_rejected(self):
+        """Test attachment fails for mismatched domains."""
+        domain = IntervalDomain(0, 1)
+        space = MockSpace(IntervalDomain(0, 2))  # Different domain
+
+        f = Function(domain, evaluate_callable=np.sin)
+        with pytest.raises(ValueError, match="Domain mismatch"):
+            f.attach_to_space(space)
+
+
+class TestFunctionDetachment:
+    """Test detaching functions from spaces."""
+
+    @pytest.fixture
+    def space(self):
+        return MockSpace(IntervalDomain(0, 1))
+
+    def test_detach_from_space(self, space):
+        """Test detaching function from space."""
+        f = Function(space, evaluate_callable=np.cos)
+        assert f.is_attached is True
+
+        f_detached = f.detach()
+        assert f_detached.is_attached is False
+        assert f_detached.space is None
+        # Original unchanged
+        assert f.is_attached is True
+
+    def test_detach_in_place(self, space):
+        """Test in-place detachment."""
+        f = Function(space, evaluate_callable=np.sin)
+        f.detach(copy=False)
+        assert f.is_attached is False
+
+    def test_detach_preserves_evaluation(self, space):
+        """Test detachment preserves function values."""
+        f = Function(space, evaluate_callable=lambda x: np.exp(-x))
+        f_detached = f.detach()
+        x = np.linspace(0, 1, 20)
+        np.testing.assert_allclose(f(x), f_detached(x))
+
+    def test_detach_coefficient_function_rejected(self, space):
+        """Test that coefficient-based functions cannot be detached."""
+        f = Function(space, coefficients=np.array([1, 2, 3]))
+        with pytest.raises(ValueError, match="Cannot detach"):
+            f.detach()
+
+
+class TestStandaloneArithmetic:
+    """Test arithmetic operations with standalone functions."""
+
+    @pytest.fixture
+    def domain(self):
+        return IntervalDomain(0, 1)
+
+    def test_standalone_add(self, domain):
+        """Test adding standalone functions."""
+        f = Function(domain, evaluate_callable=lambda x: x)
+        g = Function(domain, evaluate_callable=lambda x: x**2)
+        h = f + g
+        assert h.is_attached is False
+        x = 0.5
+        np.testing.assert_allclose(h(x), x + x**2)
+
+    def test_standalone_scalar_mul(self, domain):
+        """Test scalar multiplication of standalone function."""
+        f = Function(domain, evaluate_callable=lambda x: x)
+        h = 3 * f
+        assert h.is_attached is False
+        assert h(0.5) == 1.5
+
+    def test_standalone_neg(self, domain):
+        """Test negation of standalone function."""
+        f = Function(domain, evaluate_callable=lambda x: x)
+        g = -f
+        assert g.is_attached is False
+        assert g(0.5) == -0.5
+
+    def test_mixed_attached_unattached_add(self, domain):
+        """Test adding attached + unattached functions."""
+        space = MockSpace(domain)
+        f = Function(space, evaluate_callable=lambda x: x)
+        g = Function(domain, evaluate_callable=lambda x: x**2)
+
+        h = f + g
+        # Result should be attached (one had a space)
+        assert h.is_attached is True
+        x = 0.5
+        np.testing.assert_allclose(h(x), x + x**2)
+
+    def test_mixed_arithmetic_preserves_space(self, domain):
+        """Test that arithmetic with space preserves it when appropriate."""
+        space = MockSpace(domain)
+        f = Function(space, evaluate_callable=lambda x: x)
+        g = Function(space, evaluate_callable=lambda x: 2*x)
+
+        h = f + g
+        assert h.space is space  # Same space preserved
+

@@ -2,7 +2,16 @@
 Functions on interval domains.
 
 This module provides the Function class that represents functions living
-in function spaces on IntervalDomain.
+in function spaces on IntervalDomain, or as standalone functions on a domain.
+
+Functions can be created in two modes:
+1. **Attached to a space**: Traditional mode where the function knows its
+   Hilbert space context. Required for coefficient-based representations.
+2. **Standalone on domain**: Function defined only on an IntervalDomain,
+   without a space. Useful for defining basis functions before a space
+   exists, or for mathematical functions that don't need space context.
+
+Standalone functions can be attached to a space later via `attach_to_space()`.
 """
 
 from __future__ import annotations
@@ -16,26 +25,46 @@ import numpy as np
 if TYPE_CHECKING:
     from intervalinf.core.domain import IntervalDomain
 
-# Protocol for space objects - they need a function_domain property
-# This allows Function to work with any space that has this interface
+
+def _is_interval_domain(obj) -> bool:
+    """Check if object is an IntervalDomain (avoids circular import)."""
+    return type(obj).__name__ == 'IntervalDomain'
+
+
+def _get_domain_from_space(space) -> 'IntervalDomain':
+    """Extract function_domain from a space object."""
+    if hasattr(space, "_function_domain"):
+        return space._function_domain
+    if hasattr(space, "function_domain"):
+        return space.function_domain
+    raise AttributeError(
+        f"Space {type(space).__name__} has no function_domain attribute"
+    )
 
 
 class Function:
     """
-    A function in a function space with evaluation and arithmetic support.
+    A function on an interval domain, optionally attached to a function space.
 
-    This class represents a function that knows about the space it belongs to.
-    Functions can be defined via callable rules or basis representations
-    (coefficients).
+    Functions can be created in two modes:
+
+    1. **Attached mode** (traditional): Pass a function space as the first
+       argument. The function is tied to that space and can use coefficient
+       representations if the space has a basis.
+
+    2. **Standalone mode** (new): Pass an IntervalDomain as the first argument.
+       The function exists independently of any space. Use `attach_to_space()`
+       to later bind it to a space.
 
     Parameters
     ----------
-    space : object
-        The function space this function belongs to. Must have a
-        `function_domain` or `_function_domain` attribute returning an
-        IntervalDomain.
+    space_or_domain : object
+        Either a function space (with `function_domain` attribute) or an
+        IntervalDomain directly. If IntervalDomain, creates a standalone
+        function.
     coefficients : ndarray, optional
-        Finite-dimensional coefficient representation.
+        Finite-dimensional coefficient representation. Only valid when
+        attached to a space with a basis.
     evaluate_callable : callable, optional
         Callable defining the function rule f(x).
     name : str, optional
@@ -49,25 +78,36 @@ class Function:
     Notes
     -----
     Exactly one of `coefficients` or `evaluate_callable` must be provided.
+    Coefficient-based functions require attachment to a space with a basis.
 
     Examples
     --------
     >>> from intervalinf.core import IntervalDomain, Function
-    >>> # Minimal example using a simple space object
+
+    # Standalone function on domain (new mode)
     >>> domain = IntervalDomain(0, 1)
-    >>> class SimpleSpace:
-    ...     def __init__(self, domain):
-    ...         self._function_domain = domain
-    ...         self.basis_functions = None
-    >>> space = SimpleSpace(domain)
-    >>> f = Function(space, evaluate_callable=lambda x: x**2)
+    >>> f = Function(domain, evaluate_callable=lambda x: x**2)
     >>> f(0.5)
     0.25
+    >>> f.is_attached
+    False
+
+    # Attach to a space later
+    >>> from intervalinf.spaces import Lebesgue
+    >>> space = Lebesgue(50, domain, basis='fourier')
+    >>> f_attached = f.attach_to_space(space)
+    >>> f_attached.is_attached
+    True
+
+    # Traditional mode with space
+    >>> g = Function(space, evaluate_callable=lambda x: np.sin(np.pi * x))
+    >>> g.is_attached
+    True
     """
 
     def __init__(
         self,
-        space,
+        space_or_domain,
         *,
         coefficients: Optional[np.ndarray] = None,
         evaluate_callable: Optional[Callable] = None,
@@ -79,13 +119,26 @@ class Function:
             coefficients is not None and evaluate_callable is not None
         ):
             raise ValueError(
-                (
-                    "Exactly one of 'coefficients' or 'evaluate_callable' "
-                    "must be provided."
-                )
+                "Exactly one of 'coefficients' or 'evaluate_callable' "
+                "must be provided."
             )
 
-        self.space = space
+        # Determine if we have a space or just a domain
+        if _is_interval_domain(space_or_domain):
+            # Standalone mode: function on domain only
+            self._space = None
+            self._domain = space_or_domain
+            if coefficients is not None:
+                raise ValueError(
+                    "Coefficient-based functions require a space with a "
+                    "basis. Pass a space instead of a domain, or use "
+                    "evaluate_callable for standalone functions."
+                )
+        else:
+            # Attached mode: function belongs to a space
+            self._space = space_or_domain
+            self._domain = None  # Will be derived from space
+
         self.name = name
 
         # Support specification - list of disjoint intervals
@@ -97,22 +150,165 @@ class Function:
         )
         self.evaluate_callable = evaluate_callable
 
+    # ================================================================
+    # Space/Domain Properties
+    # ================================================================
+
+    @property
+    def space(self):
+        """
+        The function space this function belongs to (None if standalone).
+
+        For backward compatibility, this property is readable. Functions
+        created on a domain only will return None.
+        """
+        return self._space
+
+    @space.setter
+    def space(self, value):
+        """Set space (for backward compatibility during transition)."""
+        if _is_interval_domain(value):
+            self._space = None
+            self._domain = value
+        else:
+            self._space = value
+            self._domain = None
+
     @property
     def function_domain(self) -> "IntervalDomain":
-        """Get the IntervalDomain from the space."""
-        from .domain import IntervalDomain
-        # If space is already an IntervalDomain, return it directly
-        if isinstance(self.space, IntervalDomain):
-            return self.space
-        # Support both _function_domain and function_domain attributes
-        if hasattr(self.space, "_function_domain"):
-            return self.space._function_domain
-        return self.space.function_domain
+        """
+        The IntervalDomain on which this function is defined.
+
+        Always available, whether function is attached to a space or not.
+        """
+        if self._domain is not None:
+            return self._domain
+        if self._space is not None:
+            return _get_domain_from_space(self._space)
+        raise RuntimeError("Function has neither space nor domain set")
+
+    @property
+    def is_attached(self) -> bool:
+        """
+        Whether this function is attached to a function space.
+
+        Returns True if the function was created with a space, False if
+        created with just a domain (standalone mode).
+        """
+        return self._space is not None
 
     @property
     def has_compact_support(self) -> bool:
         """Check if function has compact support specified."""
         return self.support is not None
+
+    # ================================================================
+    # Attachment Methods
+    # ================================================================
+
+    def attach_to_space(self, space, *, copy: bool = True) -> 'Function':
+        """
+        Create a copy of this function attached to a function space.
+
+        This allows standalone functions (created on a domain) to be
+        associated with a Hilbert space for operations that require
+        space context (e.g., computing coefficients).
+
+        Parameters
+        ----------
+        space : HilbertSpace
+            The function space to attach to. Must have a compatible
+            function_domain.
+        copy : bool, default True
+            If True, returns a new Function. If False, modifies this
+            function in-place (use with caution).
+
+        Returns
+        -------
+        Function
+            A function attached to the given space.
+
+        Raises
+        ------
+        ValueError
+            If the space's domain is incompatible with this function's
+            domain.
+
+        Examples
+        --------
+        >>> domain = IntervalDomain(0, 1)
+        >>> f = Function(domain, evaluate_callable=lambda x: x**2)
+        >>> space = Lebesgue(50, domain, basis='fourier')
+        >>> f_in_space = f.attach_to_space(space)
+        >>> f_in_space.is_attached
+        True
+        """
+        space_domain = _get_domain_from_space(space)
+
+        # Check domain compatibility
+        my_domain = self.function_domain
+        if not (space_domain.a == my_domain.a and space_domain.b == my_domain.b):
+            raise ValueError(
+                f"Domain mismatch: function domain [{my_domain.a}, {my_domain.b}] "
+                f"!= space domain [{space_domain.a}, {space_domain.b}]"
+            )
+
+        if copy:
+            return Function(
+                space,
+                coefficients=self.coefficients,
+                evaluate_callable=self.evaluate_callable,
+                name=self.name,
+                support=self.support,
+            )
+        else:
+            self._space = space
+            self._domain = None
+            return self
+
+    def detach(self, *, copy: bool = True) -> 'Function':
+        """
+        Create a standalone copy of this function (detached from space).
+
+        Useful when you want to pass a function to code that doesn't
+        need space context, or to break the reference to a space.
+
+        Parameters
+        ----------
+        copy : bool, default True
+            If True, returns a new Function. If False, modifies this
+            function in-place.
+
+        Returns
+        -------
+        Function
+            A standalone function on the domain.
+
+        Raises
+        ------
+        ValueError
+            If function has coefficients (cannot detach coefficient-based
+            functions as they require a space with basis).
+        """
+        if self.coefficients is not None:
+            raise ValueError(
+                "Cannot detach coefficient-based function. Convert to "
+                "callable first using to_callable()."
+            )
+
+        domain = self.function_domain
+
+        if copy:
+            return Function(
+                domain,
+                evaluate_callable=self.evaluate_callable,
+                name=self.name,
+                support=self.support,
+            )
+        else:
+            self._domain = domain
+            self._space = None
+            return self
 
     def evaluate(
         self, x: Union[float, np.ndarray], check_domain: Optional[bool] = None
@@ -304,17 +500,20 @@ class Function:
         return plt.gca()
 
     def copy(self) -> "Function":
-        """Create a copy of this function."""
+        """Create a copy of this function, preserving space/domain context."""
+        # Determine what to pass as first arg: space or domain
+        space_or_domain = self._space if self._space is not None else self._domain
+
         if self.coefficients is not None:
             return self.__class__(
-                self.space,
+                space_or_domain,
                 coefficients=self.coefficients.copy(),
                 name=self.name,
                 support=self.support,
             )
         else:
             return self.__class__(
-                self.space,
+                space_or_domain,
                 evaluate_callable=self.evaluate_callable,
                 name=self.name,
                 support=self.support,
@@ -492,17 +691,37 @@ class Function:
             else:
                 new_support = None
 
+            # Determine result's space/domain context:
+            # - If both have same space, use that space
+            # - If one has a space, prefer that (result is attached)
+            # - If neither has space, use domain from self
+            if self._space is not None and other._space is not None:
+                if self._space is other._space:
+                    result_context = self._space
+                else:
+                    # Different spaces - fall back to domain
+                    result_context = self.function_domain
+            elif self._space is not None:
+                result_context = self._space
+            elif other._space is not None:
+                result_context = other._space
+            else:
+                # Both standalone - use self's domain
+                result_context = self.function_domain
+
             # Use coefficient arithmetic only for linear ops with
-            # matching coefficients
+            # matching coefficients (requires same space)
             if (
                 is_linear
                 and self.coefficients is not None
                 and other.coefficients is not None
                 and len(self.coefficients) == len(other.coefficients)
+                and self._space is not None
+                and self._space is other._space
             ):
                 new_coeffs = op(self.coefficients, other.coefficients)
                 return self.__class__(
-                    self.space, coefficients=new_coeffs, support=new_support
+                    result_context, coefficients=new_coeffs, support=new_support
                 )
             else:
                 # Create callable-based result
@@ -526,18 +745,20 @@ class Function:
                     return op(eval_self(x), eval_other(x))
 
                 return self.__class__(
-                    self.space,
+                    result_context,
                     evaluate_callable=op_callable,
                     support=new_support,
                 )
 
         elif scalar_allowed and isinstance(other, numbers.Number):
+            # Preserve self's context (space or domain)
+            result_context = self._space if self._space is not None else self._domain
 
             def scalar_op_callable(x):
                 return op(self.evaluate(x), other)
 
             return self.__class__(
-                self.space,
+                result_context,
                 evaluate_callable=scalar_op_callable,
                 support=self.support,
             )
@@ -564,13 +785,14 @@ class Function:
     def __rsub__(self, other):
         # other - self
         if isinstance(other, numbers.Number):
+            result_context = self._space if self._space is not None else self._domain
 
             def rsub_callable(x):
                 # ensure numeric/array-compatible subtraction
                 return np.asarray(other) - np.asarray(self.evaluate(x))
 
             return self.__class__(
-                self.space,
+                result_context,
                 evaluate_callable=rsub_callable,
                 support=self.support,
             )
@@ -585,11 +807,12 @@ class Function:
         ):
             new_support = self._intersect_supports(self.support, other.support)
             if new_support is None or len(new_support) == 0:
+                result_context = self._space if self._space is not None else self._domain
 
                 def zero_callable(x):
                     return np.zeros_like(np.asarray(x), dtype=float)
 
-                return Function(self.space, evaluate_callable=zero_callable)
+                return Function(result_context, evaluate_callable=zero_callable)
 
         return self._binary_op(
             other,
@@ -604,9 +827,11 @@ class Function:
 
     def __neg__(self):
         """Negation: -f."""
+        result_context = self._space if self._space is not None else self._domain
+
         if self.coefficients is not None:
             return self.__class__(
-                self.space,
+                result_context,
                 coefficients=-self.coefficients,
                 name=f"-{self.name}" if self.name else None,
                 support=self.support,
@@ -617,7 +842,7 @@ class Function:
                 return -self.evaluate(x, check_domain=False)
 
             return self.__class__(
-                self.space,
+                result_context,
                 evaluate_callable=neg_callable,
                 name=f"-{self.name}" if self.name else None,
                 support=self.support,

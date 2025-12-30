@@ -191,7 +191,7 @@ class LinearFormKernel(LinearForm):
             # With weight function - adjust kernel by 1/weight
             return self._kernel * Function(
                 self.domain,
-                evaluate_callable=lambda x: 1 / self._weight(x)
+                evaluate_callable=lambda x: 1 / self._weight(x)  # type: ignore
             )
 
     @property

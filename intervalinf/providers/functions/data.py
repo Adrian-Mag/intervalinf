@@ -34,7 +34,7 @@ class KernelProvider(IndexedFunctionProvider):
 
     def __init__(
         self,
-        space,
+        space_or_domain,
         kernel_type: str = "rho",
         kernel_data_dir: Optional[str] = None
     ):
@@ -42,11 +42,11 @@ class KernelProvider(IndexedFunctionProvider):
         Initialize kernel provider.
 
         Args:
-            space: Lebesgue instance (contains domain information)
+            space_or_domain: Space or IntervalDomain
             kernel_type: Type of kernel (e.g., "rho", "vpv", "vph")
             kernel_data_dir: Directory containing kernel data files
         """
-        super().__init__(space)
+        super().__init__(space_or_domain)
         self._kernel_type = kernel_type
         self._data_dir = kernel_data_dir
         self._data_list = self._get_data_list()
@@ -90,7 +90,7 @@ class KernelProvider(IndexedFunctionProvider):
         )
 
         func = Function(
-            self.space,
+            self.function_context,
             evaluate_callable=interp_func,
             name=f"kernel_{self._kernel_type}_{mode}"
         )
@@ -135,7 +135,7 @@ class NormalModesProvider(
 
     def __init__(
         self,
-        space,
+        space_or_domain,
         random_state: Optional[int] = None,
         n_modes_range: Tuple[int, int] = (3, 8),
         coeff_range: Tuple[float, float] = (-2.0, 2.0),
@@ -146,7 +146,7 @@ class NormalModesProvider(
         Initialize normal modes provider.
 
         Args:
-            space: Lebesgue instance (contains domain information)
+            space_or_domain: Space or IntervalDomain
             random_state: Random seed for reproducibility
             n_modes_range: (min, max) number of sine functions to combine
             coeff_range: (min, max) range for linear combination coefficients
@@ -154,7 +154,7 @@ class NormalModesProvider(
             gaussian_width_percent_range: (min, max) percentage of interval
                                         length for Gaussian width
         """
-        super().__init__(space, random_state)
+        super().__init__(space_or_domain, random_state)
         self.n_modes_range = n_modes_range
         self.coeff_range = coeff_range
         self.freq_range = freq_range
@@ -204,7 +204,7 @@ class NormalModesProvider(
             return trig_combination * gaussian_envelope
 
         return Function(
-            self.space,
+            self.function_context,
             evaluate_callable=combined_func,
             name=f'gaussian_modulated_trig_{n_modes}_modes'
         )
@@ -263,7 +263,7 @@ class NormalModesProvider(
             return trig_combination * gaussian_envelope
 
         return Function(
-            self.space,
+            self.function_context,
             evaluate_callable=combined_func,
             name=f'normal_mode_{index}_{n_modes}_modes'
         )
@@ -317,7 +317,7 @@ class NormalModesProvider(
             return trig_combination * gaussian_envelope
 
         return Function(
-            self.space,
+            self.function_context,
             evaluate_callable=combined_func,
             name=f'parametric_gaussian_modulated_{n_modes}_modes'
         )

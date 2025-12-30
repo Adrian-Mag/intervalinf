@@ -129,11 +129,13 @@ class RadialLaplacianEigenvalueProvider(EigenvalueProvider):
                     k = (index + 1) * np.pi / L
                     eigenval = k ** 2
 
-                elif self._boundary_conditions.type == 'mixed_dirichlet_neumann':
+                elif self._boundary_conditions.type == \
+                        'mixed_dirichlet_neumann':
                     # DN: tan(kL) = kb
                     eigenval = self._compute_dn_eigenvalue(index, a, b, L)
 
-                elif self._boundary_conditions.type == 'mixed_neumann_dirichlet':
+                elif self._boundary_conditions.type == \
+                        'mixed_neumann_dirichlet':
                     # ND: tan(kL) = -ak
                     eigenval = self._compute_nd_eigenvalue(index, a, b, L)
 
@@ -176,7 +178,8 @@ class RadialLaplacianEigenvalueProvider(EigenvalueProvider):
         if index == 0:
             return 0.0  # First root is k=0 → λ=0
         else:
-            F = lambda k: k * R
+            def F(k):
+                return k * R
             k_root = RobinRootFinder.solve_tan_equation(F, R, index - 1)
             return k_root ** 2
 
@@ -184,7 +187,8 @@ class RadialLaplacianEigenvalueProvider(EigenvalueProvider):
         self, index: int, a: float, b: float, L: float
     ) -> float:
         """Compute Dirichlet-Neumann eigenvalue for ℓ=0 on (a,b)."""
-        F = lambda k: k * b
+        def F(k):
+            return k * b
         k_root = RobinRootFinder.solve_tan_equation(F, L, index)
         return k_root ** 2
 
@@ -192,7 +196,8 @@ class RadialLaplacianEigenvalueProvider(EigenvalueProvider):
         self, index: int, a: float, b: float, L: float
     ) -> float:
         """Compute Neumann-Dirichlet eigenvalue for ℓ=0 on (a,b)."""
-        F = lambda k: -a * k
+        def F(k):
+            return -a * k
         k_root = RobinRootFinder.solve_tan_equation(F, L, index)
         return k_root ** 2
 
@@ -201,7 +206,10 @@ class RadialLaplacianEigenvalueProvider(EigenvalueProvider):
     ) -> float:
         """Compute Neumann-Neumann eigenvalue for ℓ=0 on (a,b)."""
         numerator = 1.0/b - 1.0/a
-        F = lambda k: numerator / (k + 1.0/(a * b * k))
+
+        def F(k):
+            return numerator / (k + 1.0/(a * b * k))
+
         k_root = RobinRootFinder.solve_tan_equation(F, L, index - 1)
         return k_root ** 2
 
@@ -241,7 +249,9 @@ class RadialLaplacianSpectrumProvider(SpectrumProvider):
         self._boundary_conditions = boundary_conditions
         self._inverse = inverse
         self._ell = ell
-        super().__init__(space, orthonormal=True, basis_type='radial_laplacian')
+        super().__init__(
+            space, orthonormal=True, basis_type='radial_laplacian'
+        )
 
         self._eigenvalue_provider = RadialLaplacianEigenvalueProvider(
             space.function_domain,
@@ -412,7 +422,8 @@ class RadialLaplacian(SpectralOperator):
 
     def _setup_finite_difference(self):
         """Setup finite difference discretization for radial Laplacian."""
-        a, b = self._domain.function_domain.a, self._domain.function_domain.b
+        a, b = (self._domain.function_domain.a,  # type: ignore
+                self._domain.function_domain.b)  # type: ignore
 
         # Create radial grid - handle r=0 carefully
         if a == 0:
@@ -456,7 +467,7 @@ class RadialLaplacian(SpectralOperator):
         # Create sparse matrix
         matrix = diags(
             [lower_diag, main_diag, upper_diag],
-            offsets=[-1, 0, 1],
+            offsets=[-1, 0, 1],  # type: ignore
             shape=(n, n),
             format='csr'
         )
@@ -505,7 +516,8 @@ class RadialLaplacian(SpectralOperator):
             return np.interp(r, _r_grid, _vals)
 
         return Function(
-            self.codomain.function_domain, evaluate_callable=laplacian_func
+            self.codomain.function_domain,  # type: ignore
+            evaluate_callable=laplacian_func
         )
 
 

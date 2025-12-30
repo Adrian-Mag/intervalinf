@@ -20,7 +20,9 @@ Structure:
 
 Usage:
 ------
->>> from intervalinf.providers import SineFunctionProvider, LaplacianSpectrumProvider
+>>> from intervalinf.providers import (
+...     SineFunctionProvider, LaplacianSpectrumProvider
+... )
 >>> provider = SineFunctionProvider(space)
 >>> phi_0 = provider.get_function_by_index(0)
 """

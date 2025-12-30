@@ -29,28 +29,39 @@ class HatFunctionProvider(IndexedFunctionProvider):
     associated node and 0 at all other nodes.
     """
 
-    def __init__(self, space, homogeneous: bool = False, n_nodes: int = None):
+    def __init__(
+        self,
+        space_or_domain,
+        homogeneous: bool = False,
+        n_nodes: Optional[int] = None
+    ):
         """
         Initialize the hat function provider.
 
         Args:
-            space: Lebesgue instance
+            space_or_domain: Space or IntervalDomain
             homogeneous: If True, omit boundary nodes (homogeneous Dirichlet)
             n_nodes: Number of nodes (default: space.dim + boundary adjustment)
         """
-        super().__init__(space)
+        super().__init__(space_or_domain)
         self._cache = {}
         self.homogeneous = homogeneous
 
         if n_nodes is None:
-            if homogeneous:
-                self.n_nodes = self.space.dim + 2
+            if self.space is not None:
+                if homogeneous:
+                    self.n_nodes = self.space.dim + 2
+                else:
+                    self.n_nodes = self.space.dim
             else:
-                self.n_nodes = self.space.dim
+                # Standalone mode: require n_nodes
+                raise ValueError(
+                    "n_nodes must be specified when using domain-only mode"
+                )
         else:
             self.n_nodes = n_nodes
 
-        a, b = self.space.function_domain.a, self.space.function_domain.b
+        a, b = self.domain.a, self.domain.b
         self.nodes = np.linspace(a, b, self.n_nodes)
         self.h = (b - a) / (self.n_nodes - 1)
 
@@ -100,7 +111,7 @@ class HatFunctionProvider(IndexedFunctionProvider):
                 name = f"hat_{index}(x={node_position:.3f})"
 
             func = Function(
-                self.space,
+                self.function_context,
                 evaluate_callable=hat_func,
                 name=name
             )
@@ -120,7 +131,9 @@ class HatFunctionProvider(IndexedFunctionProvider):
             return self.nodes.copy()
 
 
-class SplineFunctionProvider(IndexedFunctionProvider, ParametricFunctionProvider):
+class SplineFunctionProvider(
+    IndexedFunctionProvider, ParametricFunctionProvider
+):
     """
     Provider for B-spline basis functions.
 
@@ -128,14 +141,14 @@ class SplineFunctionProvider(IndexedFunctionProvider, ParametricFunctionProvider
     useful for smooth approximations and interpolation.
     """
 
-    def __init__(self, space):
+    def __init__(self, space_or_domain):
         """
         Initialize spline provider.
 
         Args:
-            space: Lebesgue instance (contains domain information)
+            space_or_domain: Space or IntervalDomain
         """
-        super().__init__(space)
+        super().__init__(space_or_domain)
         self._cache = {}
 
     def get_function_by_index(
@@ -184,7 +197,7 @@ class SplineFunctionProvider(IndexedFunctionProvider, ParametricFunctionProvider
             return spline(x)
 
         func = Function(
-            self.space,
+            self.function_context,
             evaluate_callable=spline_func,
             name=f'spline_{index}_deg{degree}'
         )
@@ -219,7 +232,7 @@ class SplineFunctionProvider(IndexedFunctionProvider, ParametricFunctionProvider
             return spline(x)
 
         return Function(
-            self.space,
+            self.function_context,
             evaluate_callable=spline_func,
             name=f'spline_deg{degree}'
         )

@@ -221,6 +221,75 @@ class RobinRootFinder:
         return RobinRootFinder.bisect(D, left, right, tol=tol, maxit=maxit)
 
     @staticmethod
+    def solve_tan_equation(
+        F: Callable[[float], float],
+        L: float,
+        index: int,
+        tol: float = 1e-12,
+        maxit: int = 100,
+        eps: float = 1e-8
+    ) -> float:
+        """
+        Solve tan(kL) = F(k) for the k satisfying the equation.
+
+        This is a general-purpose solver for transcendental equations of
+        the form tan(kL) = F(k), which arise in eigenvalue problems with
+        various boundary conditions. The function tan(kL) has poles at
+        (n+1/2)π/L, and between consecutive poles there is exactly one
+        root.
+
+        Args:
+            F: Right-hand side function F(k)
+            L: Domain length
+            index: Root index (0-based). The index-th root lies between the
+                   index-th and (index+1)-th pole of tan(kL)
+            tol: Root-finding tolerance
+            maxit: Maximum bisection iterations
+            eps: Small offset from poles to avoid numerical issues
+
+        Returns:
+            k value satisfying tan(kL) = F(k)
+
+        Raises:
+            RuntimeError: If root cannot be bracketed or found
+
+        Example:
+            >>> # Solve tan(k) = k for first root (index=0)
+            >>> k = RobinRootFinder.solve_tan_equation(
+            ...     lambda k: k, 1.0, 0
+            ... )
+            >>> abs(math.tan(k) - k) < 1e-10
+            True
+        """
+        # Define equation: tan(kL) - F(k) = 0
+        def G(k: float) -> float:
+            return math.tan(k * L) - F(k)
+
+        # Bracket: between index-th and (index+1)-th pole
+        left = ((index + 0.5) * math.pi) / L + eps
+        right = ((index + 1.5) * math.pi) / L - eps
+
+        # Try to ensure sign change by gentle expansion
+        try:
+            left, right = RobinRootFinder.find_bracket_with_expansion(
+                G, left, right, max_attempts=6
+            )
+        except RuntimeError:
+            # Expansion failed, try scanning
+            try:
+                left, right = RobinRootFinder.find_bracket_by_scanning(
+                    G, left, right, n_samples=129
+                )
+            except RuntimeError as e:
+                raise RuntimeError(
+                    f"Failed to bracket solution to tan(kL) = F(k) "
+                    f"for index={index}, L={L}. Original error: {e}"
+                )
+
+        # Find root by bisection
+        return RobinRootFinder.bisect(G, left, right, tol, maxit)
+
+    @staticmethod
     def compute_coefficients_from_left_bc(
         mu: float,
         alpha_0: float,
@@ -248,7 +317,10 @@ class RobinRootFinder:
             # Normalize with A = 1
             A = 1.0
             if abs(alpha_0) > 1e-14:
-                B = -alpha_0 / (beta_0 * mu) if abs(beta_0 * mu) > 1e-14 else 0.0
+                B = (
+                    -alpha_0 / (beta_0 * mu)
+                    if abs(beta_0 * mu) > 1e-14 else 0.0
+                )
             else:
                 B = 0.0
         else:

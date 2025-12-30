@@ -1,8 +1,8 @@
 # intervalinf Migration Status
 
-**Last Updated:** December 16, 2025
-**Current Phase:** Phase 3 COMPLETED, Phase 4 next
-**Tests Passing:** 231
+**Last Updated:** December 30, 2025
+**Current Phase:** Phase 5 COMPLETED, Phase 6 next
+**Tests Passing:** 270
 
 ## Project Overview
 
@@ -16,7 +16,8 @@ We are extracting the `interval` module from `pygeoinf` into a standalone packag
 ### Key Design Decisions
 1. **pygeoinf as dependency:** Operators inherit from `pygeoinf.linear_operators.LinearOperator` and spaces from `pygeoinf.hilbert_space.HilbertSpace`
 2. **Providers created in Phase 3:** Although originally planned for Phase 4, providers were created during Phase 3 because operators depend on them
-3. **Basis initialization:** Lebesgue spaces use `basis=None` by default; basis providers need to be connected in Phase 4
+3. **Basis initialization:** Lebesgue spaces use `basis=None` by default; basis providers connected in Phase 4
+4. **Function decoupling:** Functions can now be standalone (domain-only) or attached to a space; providers support both modes
 
 ---
 
@@ -78,32 +79,49 @@ We are extracting the `interval` module from `pygeoinf` into a standalone packag
 
 ---
 
-### 🔲 Phase 4: Providers Integration (NEXT)
-**Goal:** Connect the providers (already created in Phase 3) to the Lebesgue/Sobolev spaces so that `basis='sine'`, `basis='cosine'`, etc. work without falling back to pygeoinf imports.
+### ✅ Phase 4: Providers Integration (COMPLETED)
+**Goal:** Connect the providers to the Lebesgue/Sobolev spaces and restructure provider hierarchy.
 
-**Current Issue:** In `intervalinf/spaces/lebesgue.py`, the `create_basis_provider()` function (lines ~860-930) tries to import from `pygeoinf.interval.function_providers` and raises `NotImplementedError` if that fails. This needs to be updated to use the new `intervalinf.providers` module.
+**Changes made:**
+1. Created hierarchical provider structure under `providers/functions/`:
+   - `trigonometric.py` - Sine, Cosine, Fourier, MixedDN, MixedND, Robin
+   - `fem.py` - HatFunctionProvider, SplineFunctionProvider
+   - `smooth.py` - BumpFunctionProvider, BumpFunctionGradientProvider
+   - `wavelets.py` - WaveletFunctionProvider
+   - `step.py` - BoxCarFunctionProvider, DiscontinuousFunctionProvider
+   - `data.py` - KernelProvider, NormalModesProvider
+2. Updated `create_basis_provider()` in `lebesgue.py` to use intervalinf providers
+3. Added `space_or_domain` support to all providers (can create standalone functions)
+4. Decoupled `Function` class from spaces - functions can now be standalone or attached
 
-**Tasks:**
-1. Update `create_basis_provider()` in `lebesgue.py` to import from `intervalinf.providers`
-2. Update the basis initialization in `Lebesgue.__init__()`
-3. Add tests for basis functionality
-4. Test that `Lebesgue(100, domain, basis='sine')` works
-
-**Source reference:** `pygeoinf/pygeoinf/interval/lebesgue_space.py` lines 858-1070 for how basis providers are connected
-
----
-
-### 🔲 Phase 5: Sampling Module
-**Goal:** Migrate the sampling/inference utilities
-
-**Source files to migrate:**
-- `pygeoinf/interval/sampling/` directory
-- Random function sampling
-- Prior/posterior sampling utilities
+**Tests:** 270 passing (including 20 standalone provider tests)
 
 ---
 
-### 🔲 Phase 6: Integration & Cleanup
+### ✅ Phase 5: Sampling Module (COMPLETED)
+**Goal:** Migrate the KL sampling utilities.
+
+**Source file migrated:**
+- `pygeoinf/interval/KL_sampler.py` → `intervalinf/sampling/kl_sampler.py`
+
+**Files created:**
+| File | Classes | Description |
+|------|---------|-------------|
+| `sampling/__init__.py` | Module exports | Exports KLSampler, TruncationInfo |
+| `sampling/kl_sampler.py` | `KLSampler`, `TruncationInfo` | Spectral (KL) sampling for Gaussian measures (~370 lines) |
+
+**Features:**
+- Truncated KL expansion for Gaussian measures
+- Support for both Lebesgue and Sobolev (mass-weighted) spaces
+- Covariance factor operator L with C ≈ L L*
+- Variance function computation
+- Energy-based or explicit mode truncation
+
+**Tests:** 270 passing
+
+---
+
+### 🔲 Phase 6: Integration & Cleanup (NEXT)
 **Goal:** Final integration, documentation, and cleanup
 
 **Tasks:**
@@ -151,16 +169,25 @@ intervalinf/
 │   ├── providers/
 │   │   ├── __init__.py
 │   │   ├── base.py
-│   │   ├── functions.py
 │   │   ├── spectrum.py
-│   │   └── radial.py
+│   │   ├── radial.py
+│   │   └── functions/
+│   │       ├── __init__.py
+│   │       ├── trigonometric.py
+│   │       ├── fem.py
+│   │       ├── smooth.py
+│   │       ├── wavelets.py
+│   │       ├── step.py
+│   │       └── data.py
 │   ├── sampling/
-│   │   └── __init__.py  (placeholder)
+│   │   ├── __init__.py
+│   │   └── kl_sampler.py
 │   └── utils/
 │       ├── __init__.py
 │       └── robin_utils.py
 └── tests/
     ├── __init__.py
+    ├── conftest.py
     ├── core/
     │   ├── __init__.py
     │   ├── test_boundary.py
@@ -172,9 +199,12 @@ intervalinf/
     │   ├── test_forms.py
     │   ├── test_lebesgue.py
     │   └── test_sobolev.py
-    └── operators/
+    ├── operators/
+    │   ├── __init__.py
+    │   └── test_operators.py
+    └── providers/
         ├── __init__.py
-        └── test_operators.py
+        └── test_standalone_providers.py
 ```
 
 ---

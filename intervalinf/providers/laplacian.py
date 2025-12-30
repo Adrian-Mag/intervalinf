@@ -215,7 +215,10 @@ class LaplacianSpectrumProvider(SpectrumProvider):
             )
 
     def _choose_basis(self):
-        """Select appropriate function provider based on boundary conditions."""
+        """
+        Select appropriate function provider based on boundary
+        conditions.
+        """
         from intervalinf.providers.functions import (
             SineFunctionProvider,
             CosineFunctionProvider,

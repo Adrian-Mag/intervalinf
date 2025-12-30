@@ -31,15 +31,15 @@ class WaveletFunctionProvider(IndexedFunctionProvider):
         etc.
     """
 
-    def __init__(self, space, wavelet_type: str = 'haar'):
+    def __init__(self, space_or_domain, wavelet_type: str = 'haar'):
         """
         Initialize wavelet provider.
 
         Args:
-            space: Lebesgue instance (contains domain information)
+            space_or_domain: Space or IntervalDomain
             wavelet_type: Type of wavelet ('haar', etc.)
         """
-        super().__init__(space)
+        super().__init__(space_or_domain)
         self.wavelet_type = wavelet_type
         self._cache = {}
 
@@ -69,7 +69,7 @@ class WaveletFunctionProvider(IndexedFunctionProvider):
                 return np.ones_like(x_arr, dtype=float) / np.sqrt(b - a)
 
             return Function(
-                self.space,
+                self.function_context,
                 evaluate_callable=scaling_func,
                 name='haar_scaling'
             )
@@ -91,7 +91,10 @@ class WaveletFunctionProvider(IndexedFunctionProvider):
 
             # Haar wavelet: +1 on first half, -1 on second half of support
             mask1 = (x_norm >= shift) & (x_norm < shift + 0.5/scale)
-            mask2 = (x_norm >= shift + 0.5/scale) & (x_norm < shift + 1.0/scale)
+            mask2 = (
+                (x_norm >= shift + 0.5 / scale) &
+                (x_norm < shift + 1.0 / scale)
+            )
 
             result[mask1] = np.sqrt(scale)
             result[mask2] = -np.sqrt(scale)
@@ -99,7 +102,7 @@ class WaveletFunctionProvider(IndexedFunctionProvider):
             return result
 
         return Function(
-            self.space,
+            self.function_context,
             evaluate_callable=haar_func,
             name=f'haar_L{level}_I{index_in_level}'
         )

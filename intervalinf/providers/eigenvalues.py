@@ -10,7 +10,6 @@ on these, see laplacian.py.
 """
 
 import math
-import numpy as np
 
 from intervalinf.providers.base import EigenvalueProvider
 
