@@ -21,7 +21,7 @@ from intervalinf.spaces.sobolev import Sobolev
 from intervalinf.core.boundary import BoundaryConditions
 from intervalinf.core.functions import Function
 from intervalinf.core.config import IntegrationConfig
-from intervalinf.providers.spectrum import LaplacianSpectrumProvider
+from intervalinf.providers.laplacian import LaplacianSpectrumProvider
 
 
 class Laplacian(SpectralOperator):

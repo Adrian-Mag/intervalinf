@@ -1,14 +1,15 @@
 """
-Concrete function providers for interval domains.
+Trigonometric function providers.
 
-This module contains function providers for common orthogonal basis functions:
+This module contains providers for orthogonal basis functions based on
+trigonometric functions:
+
 - SineFunctionProvider: Dirichlet eigenfunctions
 - CosineFunctionProvider: Neumann eigenfunctions
 - FourierFunctionProvider: Periodic eigenfunctions
 - MixedDNFunctionProvider: Dirichlet-Neumann eigenfunctions
 - MixedNDFunctionProvider: Neumann-Dirichlet eigenfunctions
 - RobinFunctionProvider: General Robin eigenfunctions
-- HatFunctionProvider: Piecewise linear basis for FEM
 """
 
 import math
@@ -28,6 +29,8 @@ class SineFunctionProvider(IndexedFunctionProvider):
 
     These are the eigenfunctions for Dirichlet boundary conditions
     on the negative Laplacian operator.
+
+    Normalized: ||φₖ||₂ = 1 with φₖ(x) = √(2/L) sin(kπ(x-a)/L)
     """
 
     def __init__(self, space):
@@ -71,6 +74,10 @@ class CosineFunctionProvider(IndexedFunctionProvider):
 
     These are the eigenfunctions for Neumann boundary conditions
     on the negative Laplacian operator (with constant mode for k=0).
+
+    Normalized: ||φₖ||₂ = 1
+        φ₀(x) = 1/√L (constant)
+        φₖ(x) = √(2/L) cos(kπ(x-a)/L) for k≥1
     """
 
     def __init__(self, space, non_constant_only: bool = False):
@@ -133,7 +140,17 @@ class CosineFunctionProvider(IndexedFunctionProvider):
 
 
 class FourierFunctionProvider(IndexedFunctionProvider):
-    """Provider for Fourier basis functions (periodic BCs)."""
+    """
+    Provider for Fourier basis functions (periodic BCs).
+
+    Ordering:
+        index 0: 1/√L (constant)
+        index 1: √(2/L) cos(2πx/L)
+        index 2: √(2/L) sin(2πx/L)
+        index 3: √(2/L) cos(4πx/L)
+        index 4: √(2/L) sin(4πx/L)
+        etc.
+    """
 
     def __init__(self, space, non_constant_only: bool = False):
         """
@@ -148,13 +165,7 @@ class FourierFunctionProvider(IndexedFunctionProvider):
         self._cache = {}
 
     def get_function_by_index(self, index: int, **kwargs) -> 'Function':
-        """
-        Get Fourier basis function by index.
-
-        Index 0: constant function
-        Odd index (2k-1):  √(2/L) · cos(2πk(x−a)/L)
-        Even index (2k):   √(2/L) · sin(2πk(x−a)/L)
-        """
+        """Get Fourier basis function by index."""
         from intervalinf.core.functions import Function
 
         if self.non_constant_only:
@@ -205,8 +216,10 @@ class FourierFunctionProvider(IndexedFunctionProvider):
 
 class MixedDNFunctionProvider(IndexedFunctionProvider):
     """
-    Mixed DN eigenfunctions for -d2/dx2 on (a,b):
-      u(a)=0, u'(b)=0  ⇒  φ_k(x) = √(2/L) · sin((k+1/2)π(x-a)/L), k≥0
+    Mixed Dirichlet-Neumann eigenfunctions for -d²/dx² on (a,b).
+
+    Boundary conditions: u(a)=0, u'(b)=0
+    Eigenfunctions: φₖ(x) = √(2/L) · sin((k+1/2)π(x-a)/L), k≥0
     """
 
     def __init__(self, space):
@@ -241,8 +254,10 @@ class MixedDNFunctionProvider(IndexedFunctionProvider):
 
 class MixedNDFunctionProvider(IndexedFunctionProvider):
     """
-    Mixed ND eigenfunctions for -d2/dx2 on (a,b):
-      u'(a)=0, u(b)=0  ⇒  φ_k(x) = √(2/L) · cos((k+1/2)π(x-a)/L), k≥0
+    Mixed Neumann-Dirichlet eigenfunctions for -d²/dx² on (a,b).
+
+    Boundary conditions: u'(a)=0, u(b)=0
+    Eigenfunctions: φₖ(x) = √(2/L) · cos((k+1/2)π(x-a)/L), k≥0
     """
 
     def __init__(self, space):
@@ -277,9 +292,14 @@ class MixedNDFunctionProvider(IndexedFunctionProvider):
 
 class RobinFunctionProvider(IndexedFunctionProvider):
     """
-    Robin eigenfunctions for -d2/dx2 on (a,b) with separated BCs:
-      alpha_0 u(a) + beta_0 u'(a) = 0,
-      alpha_L u(b) + beta_L u'(b) = 0.
+    Robin eigenfunctions for -d²/dx² on (a,b) with separated BCs.
+
+    Boundary conditions:
+        α₀ u(a) + β₀ u'(a) = 0
+        α_L u(b) + β_L u'(b) = 0
+
+    The eigenvalues μₖ are determined by solving the transcendental
+    equation arising from the boundary conditions.
     """
 
     def __init__(
@@ -291,6 +311,17 @@ class RobinFunctionProvider(IndexedFunctionProvider):
         root_tol: float = 1e-12,
         max_bisect_iter: int = 100
     ):
+        """
+        Initialize Robin function provider.
+
+        Args:
+            space: Lebesgue instance
+            bcs: BoundaryConditions object with Robin parameters
+            integration_method: Method for L² normalization
+            n_points: Number of points for integration
+            root_tol: Tolerance for root finding
+            max_bisect_iter: Maximum bisection iterations
+        """
         super().__init__(space)
         self.alpha0 = float(bcs.get_parameter('left_alpha'))
         self.beta0 = float(bcs.get_parameter('left_beta'))
@@ -319,7 +350,7 @@ class RobinFunctionProvider(IndexedFunctionProvider):
         a, b = self.domain.a, self.domain.b
         L = b - a
 
-        # get μ_k
+        # Get μₖ
         mu = self._mu_at(index)
 
         # Special pure Neumann case -> constant mode
@@ -341,12 +372,12 @@ class RobinFunctionProvider(IndexedFunctionProvider):
             mu, self.alpha0, self.beta0, self.alphaL, self.betaL, L
         )
 
-        # raw eigenfunction (unnormalized)
+        # Raw eigenfunction (unnormalized)
         def raw(x):
             y = np.asarray(x) - a
             return A * np.cos(mu * y) + B * np.sin(mu * y)
 
-        # normalize in L²(a,b)
+        # Normalize in L²(a,b)
         raw_func = Function(self.space, evaluate_callable=raw)
         norm2 = (raw_func * raw_func).integrate(
             method=self.integration_method,
@@ -383,102 +414,3 @@ class RobinFunctionProvider(IndexedFunctionProvider):
             maxit=self.max_bisect_iter
         )
         self._mu_cache.append(mu)
-
-
-class HatFunctionProvider(IndexedFunctionProvider):
-    """
-    Provider for hat functions (piecewise linear basis functions).
-
-    Hat functions are continuous, piecewise linear functions that form
-    a basis for finite element methods.
-    """
-
-    def __init__(self, space, homogeneous=False, n_nodes=None):
-        """
-        Initialize the hat function provider.
-
-        Args:
-            space: Lebesgue instance
-            homogeneous: If True, omit boundary nodes (homogeneous Dirichlet)
-            n_nodes: Number of nodes (default: space.dim + boundary adjustment)
-        """
-        super().__init__(space)
-        self._cache = {}
-        self.homogeneous = homogeneous
-
-        if n_nodes is None:
-            if homogeneous:
-                self.n_nodes = self.space.dim + 2
-            else:
-                self.n_nodes = self.space.dim
-        else:
-            self.n_nodes = n_nodes
-
-        a, b = self.space.function_domain.a, self.space.function_domain.b
-        self.nodes = np.linspace(a, b, self.n_nodes)
-        self.h = (b - a) / (self.n_nodes - 1)
-
-    def get_function_by_index(self, index: int, **kwargs) -> 'Function':
-        """Get hat function for given index."""
-        if index not in self._cache:
-            from intervalinf.core.functions import Function
-
-            if self.homogeneous:
-                effective_index = index + 1
-            else:
-                effective_index = index
-
-            node_position = self.nodes[effective_index]
-
-            def hat_func(x):
-                x = np.asarray(x)
-                result = np.zeros_like(x, dtype=float)
-
-                left_node = effective_index - 1
-                right_node = effective_index + 1
-
-                if left_node >= 0:
-                    left_x = self.nodes[left_node]
-                    mask_left = (x >= left_x) & (x <= node_position)
-                    if np.any(mask_left):
-                        result[mask_left] = (x[mask_left] - left_x) / self.h
-
-                if right_node < self.n_nodes:
-                    right_x = self.nodes[right_node]
-                    mask_right = (x >= node_position) & (x <= right_x)
-                    if np.any(mask_right):
-                        result[mask_right] = (
-                            (right_x - x[mask_right]) / self.h
-                        )
-
-                mask_exact = np.isclose(
-                    x, node_position, rtol=1e-14, atol=1e-14
-                )
-                result[mask_exact] = 1.0
-
-                return result
-
-            if self.homogeneous:
-                name = f"hat_hom_{index}(x={node_position:.3f})"
-            else:
-                name = f"hat_{index}(x={node_position:.3f})"
-
-            func = Function(
-                self.space,
-                evaluate_callable=hat_func,
-                name=name
-            )
-            self._cache[index] = func
-
-        return self._cache[index]
-
-    def get_nodes(self):
-        """Get the node coordinates."""
-        return self.nodes.copy()
-
-    def get_active_nodes(self):
-        """Get coordinates of nodes corresponding to basis functions."""
-        if self.homogeneous:
-            return self.nodes[1:-1].copy()
-        else:
-            return self.nodes.copy()

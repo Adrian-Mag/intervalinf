@@ -850,9 +850,6 @@ def create_basis_provider(
     """
     Factory function to create a BasisProvider for a Lebesgue space.
 
-    This will be fully implemented in Phase 4 when providers
-    are migrated. For now, uses pygeoinf for interim support.
-
     Args:
         space: The Lebesgue space to create the basis for.
         basis_type: Type of basis ('fourier', 'hat', 'sine', etc.).
@@ -862,97 +859,61 @@ def create_basis_provider(
 
     Raises:
         ValueError: If basis_type is not supported.
-        NotImplementedError: If providers are not yet migrated.
     """
-    # TODO: Phase 4 - Migrate providers module and implement this fully
-    # For now, try importing from pygeoinf.interval if available
-    try:
-        from pygeoinf.interval.function_providers import (
-            FourierFunctionProvider,
-            HatFunctionProvider,
-            SineFunctionProvider,
-            CosineFunctionProvider,
-            MixedDNFunctionProvider,
-            MixedNDFunctionProvider,
+    from intervalinf.providers import (
+        SineFunctionProvider,
+        CosineFunctionProvider,
+        FourierFunctionProvider,
+        HatFunctionProvider,
+        MixedDNFunctionProvider,
+        MixedNDFunctionProvider,
+        SplineFunctionProvider,
+        WaveletFunctionProvider,
+        CustomBasisProvider,
+    )
+
+    # Map basis type to (provider_factory, orthonormal)
+    provider_map = {
+        'sine': (SineFunctionProvider, True),
+        'cosine': (CosineFunctionProvider, True),
+        'cosine_non_constant': (
+            lambda s: CosineFunctionProvider(s, non_constant_only=True),
+            True
+        ),
+        'fourier': (FourierFunctionProvider, True),
+        'fourier_non_constant': (
+            lambda s: FourierFunctionProvider(s, non_constant_only=True),
+            True
+        ),
+        'hat': (HatFunctionProvider, False),
+        'spline': (SplineFunctionProvider, False),
+        'wavelet': (WaveletFunctionProvider, True),
+        'DN': (MixedDNFunctionProvider, True),
+        'ND': (MixedNDFunctionProvider, True),
+    }
+
+    if basis_type not in provider_map:
+        supported = ', '.join(sorted(provider_map.keys()))
+        raise ValueError(
+            f"Unknown basis type: '{basis_type}'. "
+            f"Supported types: {supported}"
         )
 
-        # Create a temporary pygeoinf Lebesgue space for the provider
-        from pygeoinf.interval.lebesgue_space import Lebesgue as PygeLebesgue
-        from pygeoinf.interval.interval_domain import (
-            IntervalDomain as PygeIntervalDomain,
-        )
+    provider_factory, orthonormal = provider_map[basis_type]
 
-        # Convert our domain to pygeoinf domain
-        pyge_domain = PygeIntervalDomain(
-            space.function_domain.a,
-            space.function_domain.b
-        )
-        pyge_space = PygeLebesgue(space.dim, pyge_domain, basis='none')
+    # Check if factory is a lambda or class
+    if callable(provider_factory) and not isinstance(provider_factory, type):
+        function_provider = provider_factory(space)
+    else:
+        function_provider = provider_factory(space)
 
-        provider_map = {
-            'fourier': (FourierFunctionProvider, True),
-            'fourier_non_constant': (
-                lambda s: FourierFunctionProvider(s, non_constant_only=True),
-                True
-            ),
-            'hat': (HatFunctionProvider, False),
-            'sine': (SineFunctionProvider, True),
-            'cosine': (CosineFunctionProvider, True),
-            'cosine_non_constant': (
-                lambda s: CosineFunctionProvider(s, non_constant_only=True),
-                True
-            ),
-            'DN': (MixedDNFunctionProvider, True),
-            'ND': (MixedNDFunctionProvider, True),
-        }
-
-        if basis_type not in provider_map:
-            raise ValueError(f"Unknown basis type: {basis_type}")
-
-        provider_factory, orthonormal = provider_map[basis_type]
-
-        is_callable = callable(provider_factory)
-        is_not_type = not isinstance(provider_factory, type)
-        if is_callable and is_not_type:
-            fprov = provider_factory(pyge_space)
-        else:
-            fprov = provider_factory(pyge_space)
-
-        # Create adapter that wraps pygeoinf provider for intervalinf
-        return _PygeinfProviderAdapter(
-            space, fprov, orthonormal, basis_type
-        )
-
-    except ImportError:
-        raise NotImplementedError(
-            f"Basis type '{basis_type}' requires providers module "
-            "(Phase 4). Install pygeoinf for interim support, or "
-            "use basis='none' and set_basis_provider() manually."
-        )
-
-
-class _PygeinfProviderAdapter:
-    """
-    Adapter to wrap pygeoinf providers for use with intervalinf.
-
-    This is a temporary bridge until Phase 4 migrates the providers.
-    """
-
-    def __init__(self, space, pyge_provider, orthonormal, basis_type):
-        self._space = space
-        self._pyge_provider = pyge_provider
-        self.orthonormal = orthonormal
-        self.type = basis_type
-
-    def get_basis_function(self, index: int) -> 'Function':
-        """Get basis function, converting from pygeoinf to intervalinf."""
-        pyge_func = self._pyge_provider.get_function_by_index(index)
-
-        # Create intervalinf Function that wraps the pygeoinf evaluation
-        return Function(
-            self._space,
-            evaluate_callable=lambda x: pyge_func.evaluate(x)
-        )
+    # Wrap in CustomBasisProvider
+    return CustomBasisProvider(
+        space,
+        function_provider,
+        orthonormal=orthonormal,
+        basis_type=basis_type
+    )
 
 
 # =============================================================================

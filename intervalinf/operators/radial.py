@@ -17,7 +17,7 @@ from ..spaces.sobolev import Sobolev
 from ..core.boundary import BoundaryConditions
 from ..core.functions import Function
 from ..core.config import IntegrationConfig
-from ..providers.spectrum import EigenvalueProvider, SpectrumProvider
+from ..providers.base import EigenvalueProvider, SpectrumProvider
 from ..providers.radial import (
     RadialLaplacianDirichletProvider,
     RadialLaplacianNeumannProvider,
