@@ -1,13 +1,27 @@
 """Gradient operator for interval domains."""
 
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Optional, Protocol, Union
 
 import numpy as np
 
 from pygeoinf.linear_operators import LinearOperator
 
 from intervalinf.core.functions import Function
+
+if TYPE_CHECKING:
+    from intervalinf.core.domain import IntervalDomain
+    from intervalinf.spaces.lebesgue import Lebesgue
+    from intervalinf.spaces.sobolev import Sobolev
+
+
+class FunctionSpace(Protocol):
+    """Protocol for function spaces with an interval domain."""
+
+    @property
+    def function_domain(self) -> "IntervalDomain":
+        """The interval domain of the space."""
+        ...
 
 
 class Gradient(LinearOperator):
@@ -16,11 +30,15 @@ class Gradient(LinearOperator):
 
     In 1D, the gradient is simply the first derivative.
     Uses finite difference method for numerical differentiation.
+
+    This operator can work on both Lebesgue and Sobolev spaces:
+    - On Lebesgue spaces: ∇: L²([a,b]) → L²([a,b]) (unbounded)
+    - On Sobolev spaces: ∇: H^s([a,b]) → H^{s-1}([a,b]) (bounded for s ≥ 1)
     """
 
     def __init__(
         self,
-        domain: "Sobolev",
+        domain: Union["Lebesgue", "Sobolev", FunctionSpace],
         /,
         *,
         fd_order: int = 2,
@@ -31,19 +49,21 @@ class Gradient(LinearOperator):
         Initialize the gradient operator.
 
         Args:
-            domain: Function space (Lebesgue or SobolevSpace)
+            domain: Function space (Lebesgue or Sobolev) with interval
+                domain
             fd_order: Order of finite difference stencil (2, 4)
-            fd_step: Step size for finite differences (auto-computed if None)
+            fd_step: Step size for finite differences (auto-computed if
+                None)
             boundary_treatment: How to handle boundaries ('one_sided')
         """
-        self._domain = domain
-        self._codomain = domain
+        self._domain: FunctionSpace = domain  # type: ignore[assignment]
+        self._codomain: FunctionSpace = domain  # type: ignore[assignment]
         self._fd_order = fd_order
         self._fd_step = fd_step
         self._boundary_treatment = boundary_treatment
         self._log = logging.getLogger(__name__)
 
-        super().__init__(domain, domain, self._apply)
+        super().__init__(domain, domain, self._apply)  # type: ignore[arg-type]
         self._setup_finite_difference()
 
     def _setup_finite_difference(self):
@@ -100,7 +120,10 @@ class Gradient(LinearOperator):
             scalar_input = np.isscalar(x)
             x_arr = np.asarray([x]) if scalar_input else np.asarray(x)
 
+            # fd_step is guaranteed to be set by _setup_finite_difference
             h = self._fd_step
+            assert h is not None, "fd_step should be set"
+
             a = self._domain.function_domain.a
             b = self._domain.function_domain.b
 
