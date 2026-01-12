@@ -91,7 +91,8 @@ class SOLAOperator(LinearOperator):
             Lebesgue or Sobolev space (the function space)
         codomain : EuclideanSpace
             EuclideanSpace instance that defines the output dimension
-        kernels : IndexedFunctionProvider or list of Function/callable, optional
+        kernels : IndexedFunctionProvider or list of Function/callable,
+                  optional
             Provider or list of kernel functions. If list of callables,
             they will be converted to Function instances.
         cache_kernels : bool, default=False
@@ -222,10 +223,12 @@ class SOLAOperator(LinearOperator):
 
             # Compute integral of product: ∫ func(x) * kernel(x) dx
             def product_callable(x, _kernel=kernel):
-                return func.evaluate(x) * _kernel.evaluate(x, check_domain=False)
+                return (func.evaluate(x) *
+                        _kernel.evaluate(x, check_domain=False))
 
             product_func = Function(
-                self._domain.function_domain, evaluate_callable=product_callable
+                self._domain.function_domain,
+                evaluate_callable=product_callable
             )
             data[i] = product_func.integrate(
                 method=self.integration.method,
@@ -272,7 +275,7 @@ class SOLAOperator(LinearOperator):
     def get_kernels(self) -> List[Function]:
         """
         Get the list of kernels used by this operator.
-        
+
         Note: This materializes all functions and may be expensive.
 
         Returns
@@ -304,7 +307,8 @@ class SOLAOperator(LinearOperator):
                     return _ki.evaluate(x) * _kj.evaluate(x)
 
                 product_func = Function(
-                    self._domain.function_domain, evaluate_callable=product_callable
+                    self._domain.function_domain,
+                    evaluate_callable=product_callable
                 )
                 gram[i, j] = product_func.integrate(
                     method=self.integration.method,

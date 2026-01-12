@@ -114,13 +114,26 @@ class Sobolev(MassWeightedHilbertSpace):
         # Domain from underlying space
         self._function_domain = self._underlying_space.function_domain
 
-        # Create mass operators (requires Phase 3 operators)
-        M_op, M_op_inv = self._create_mass_operators()
+        # Create mass operators (requires Phase 3 operators).
+        # If no Laplacian/operator `L` was provided, defer operator
+        # construction and use placeholders that raise when invoked.
+        if self._L is None:
+            def _not_implemented(*args, **kwargs):
+                raise NotImplementedError(
+                    "Sobolev mass operators require the operators module; "
+                    "provide a Laplacian or install pygeoinf with operators."
+                )
+
+            # simple callables are sufficient at runtime for mass ops
+            M_op = lambda x: _not_implemented()
+            M_op_inv = lambda x: _not_implemented()
+        else:
+            M_op, M_op_inv = self._create_mass_operators()
 
         super().__init__(
             self._underlying_space,
             M_op,
-            M_op_inv
+            M_op_inv,
         )
 
     def _create_underlying_space(
@@ -153,7 +166,7 @@ class Sobolev(MassWeightedHilbertSpace):
             Will be migrated in Phase 3.
         """
         try:
-            from pygeoinf.interval.operators import (
+            from intervalinf.operators import (
                 BesselSobolev, BesselSobolevInverse
             )
 

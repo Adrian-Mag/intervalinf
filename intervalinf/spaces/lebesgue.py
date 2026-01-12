@@ -43,13 +43,14 @@ from intervalinf.core.config import (
 )
 from intervalinf.core.functions import Function
 from intervalinf.spaces.forms import LinearFormKernel
+from intervalinf.providers.base import BasisProvider
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from intervalinf.core.domain import IntervalDomain
-    from intervalinf.spaces._providers import BasisProvider
+    from intervalinf.providers.base import BasisProvider
 
 
 # =============================================================================
@@ -751,6 +752,12 @@ class Lebesgue(HilbertSpace):
             ]
             self.basis_provider = None
             self._use_basis_provider = False
+
+        elif isinstance(basis, BasisProvider):
+            self.basis_provider = basis
+            self._use_basis_provider = True
+            self._basis_type = getattr(basis, 'type', 'custom_provider')
+            self._basis_functions = None
 
         else:
             raise TypeError(

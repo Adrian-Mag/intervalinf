@@ -48,8 +48,7 @@ class BoxCarFunctionProvider(
 
         Args:
             space_or_domain: Space or IntervalDomain
-            default_width: Default width for indexed access (as fraction of
-                          domain)
+            default_width: Default width for indexed access
             centers: Optional array of centers for indexed access
             default_height: Default height of the box-car function
             normalize: If True, normalize so integral equals 1
