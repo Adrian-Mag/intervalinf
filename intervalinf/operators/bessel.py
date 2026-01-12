@@ -85,7 +85,8 @@ class BesselSobolev(LinearOperator):
             self._boundary_condition is not None
         )
 
-        super().__init__(domain, codomain, self._apply)
+        # BesselSobolev is self-adjoint: (k²I - Δ)^s = ((k²I - Δ)^s)^*
+        super().__init__(domain, codomain, self._apply, adjoint_mapping=self._apply)
 
     def _detect_boundary_condition(self) -> Optional[Literal[
         'dirichlet', 'neumann', 'periodic',
@@ -217,7 +218,8 @@ class BesselSobolevInverse(LinearOperator):
             self._boundary_condition is not None
         )
 
-        super().__init__(domain, codomain, self._apply)
+        # BesselSobolevInverse is self-adjoint: (k²I - Δ)^{-s} = ((k²I - Δ)^{-s})^*
+        super().__init__(domain, codomain, self._apply, adjoint_mapping=self._apply)
 
     def _detect_boundary_condition(self) -> Optional[Literal[
         'dirichlet', 'neumann', 'periodic',
