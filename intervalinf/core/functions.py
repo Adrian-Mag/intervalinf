@@ -579,12 +579,10 @@ class Function:
     @staticmethod
     def _union_supports(support1, support2):
         """Compute union of two support specifications."""
-        if support1 is None and support2 is None:
+        # `None` denotes "no compact support" i.e. the full domain.
+        # The union with the full domain should be the full domain.
+        if support1 is None or support2 is None:
             return None
-        if support1 is None:
-            return support2
-        if support2 is None:
-            return support1
 
         all_intervals = support1 + support2
         all_intervals.sort(key=lambda x: x[0])

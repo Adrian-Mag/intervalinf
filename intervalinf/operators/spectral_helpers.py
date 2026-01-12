@@ -105,7 +105,8 @@ def compute_spectral_coefficients_fast(
 
         coeff = coefficients[i] * scale
 
-        # Only append significant terms (filtering in build_eigenfunction_expansion)
+        # Only append significant terms (filtering in
+        # build_eigenfunction_expansion)
         eigfunc = operator.get_eigenfunction(i)
         terms.append((coeff, eigfunc))
 

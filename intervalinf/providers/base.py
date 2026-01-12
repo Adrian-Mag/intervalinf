@@ -372,7 +372,7 @@ class BasisProvider(ABC):
 
     def __init__(
         self,
-        space,
+        space_or_domain,
         orthonormal: bool = False,
         basis_type: Optional[str] = None
     ):
@@ -380,14 +380,40 @@ class BasisProvider(ABC):
         Initialize basis provider.
 
         Args:
-            space: The function space that owns this provider
+            space_or_domain: Either a function space or an IntervalDomain.
+                If a space is provided the provider is attached to it;
+                if a domain is provided the provider operates in
+                standalone mode.
             orthonormal: True if the basis functions are orthonormal with
                         respect to the L² inner product
             basis_type: String identifier for the type of basis
         """
-        self.space = space
+        self._space_or_domain = space_or_domain
+        self._is_standalone = _is_interval_domain(space_or_domain)
         self.orthonormal = orthonormal
         self.type = basis_type
+
+    @property
+    def domain(self) -> 'IntervalDomain':
+        """Get the IntervalDomain (always available)."""
+        return _get_domain(self._space_or_domain)
+
+    @property
+    def space(self):
+        """Get the function space (None if standalone mode)."""
+        if self._is_standalone:
+            return None
+        return self._space_or_domain
+
+    @property
+    def is_standalone(self) -> bool:
+        """True if provider creates standalone (unattached) functions."""
+        return self._is_standalone
+
+    @property
+    def function_context(self):
+        """Context to pass when constructing `Function`: space or domain."""
+        return self._space_or_domain
 
     @abstractmethod
     def get_basis_function(self, index: int) -> 'Function':
@@ -412,7 +438,7 @@ class CustomBasisProvider(BasisProvider):
 
     def __init__(
         self,
-        space,
+        space_or_domain,
         function_provider: IndexedFunctionProvider,
         orthonormal: bool = False,
         basis_type: Optional[str] = None
@@ -421,21 +447,24 @@ class CustomBasisProvider(BasisProvider):
         Initialize with function provider.
 
         Args:
-            space: The function space that owns this provider
+            space_or_domain: The function space or IntervalDomain for this
+                provider. If a domain is passed the provider operates in
+                standalone mode.
             function_provider: IndexedFunctionProvider for the basis functions
             orthonormal: True if the basis functions are orthonormal
             basis_type: String identifier for the type of basis
         """
-        super().__init__(space, orthonormal, basis_type)
+        super().__init__(space_or_domain, orthonormal, basis_type)
         self.function_provider = function_provider
 
     def get_basis_function(self, index: int) -> 'Function':
         """Get basis function from the wrapped provider."""
-        if not (0 <= index < self.space.dim):
-            raise IndexError(
-                f"Function index {index} out of range "
-                f"[0, {self.space.dim})"
-            )
+        if self.space is not None:
+            if not (0 <= index < self.space.dim):
+                raise IndexError(
+                    f"Function index {index} out of range "
+                    f"[0, {self.space.dim})"
+                )
         return self.function_provider.get_function_by_index(index)
 
 
