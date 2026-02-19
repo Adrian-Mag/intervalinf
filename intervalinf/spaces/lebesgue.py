@@ -539,7 +539,7 @@ class Lebesgue(HilbertSpace):
             )
 
     def axpy(self, a: float, x: 'Function', y: 'Function') -> 'Function':
-        """Perform y := y + a*x and return result."""
+        """Performs y := y + a*x and returns the result. Mutates y in-place when possible."""
         y_has = hasattr(y, 'coefficients') and y.coefficients is not None
         x_has = hasattr(x, 'coefficients') and x.coefficients is not None
         if y_has and x_has:
