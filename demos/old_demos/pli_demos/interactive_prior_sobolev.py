@@ -17,14 +17,11 @@ from matplotlib.widgets import Slider, RadioButtons
 import seaborn as sns
 import os
 
-from pygeoinf.interval.interval_domain import IntervalDomain
-from pygeoinf.interval import Lebesgue, Sobolev
-from pygeoinf.interval.configs import IntegrationConfig, ParallelConfig, LebesgueIntegrationConfig
-from pygeoinf.interval.functions import Function
-from pygeoinf.gaussian_measure import GaussianMeasure
-from pygeoinf.interval.boundary_conditions import BoundaryConditions
-from pygeoinf.interval.operators import BesselSobolevInverse, Laplacian
-from pygeoinf.interval.KL_sampler import KLSampler
+from intervalinf import IntervalDomain, Lebesgue, Sobolev, Function, BoundaryConditions
+from intervalinf import IntegrationConfig, ParallelConfig, LebesgueIntegrationConfig
+from intervalinf.operators import BesselSobolevInverse, Laplacian
+from intervalinf.sampling import KLSampler
+from pygeoinf import GaussianMeasure
 
 
 # Set up folder for saving figures

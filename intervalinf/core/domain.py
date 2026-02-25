@@ -424,16 +424,23 @@ class IntervalDomain:
 
             # Determine boundary types
             if i == 0:
-                if self.boundary_type in ["closed", "left_open"]:
-                    if self.boundary_type == "left_open":
-                        bt = "left_open"
-                    elif self.boundary_type == "closed":
-                        bt = "right_open"
-                    else:
-                        bt = "open"
+                # First subdomain: left boundary inherits from parent
+                if self.boundary_type in ("closed", "right_open"):
+                    # Parent's left is closed → first sub gets [a, b)
+                    bt = "right_open"
+                else:
+                    # Parent's left is open → first sub gets (a, b)
+                    bt = "open"
             elif i == len(boundaries) - 2:
-                bt = "left_open"
+                # Last subdomain: right boundary inherits from parent
+                if self.boundary_type in ("closed", "left_open"):
+                    # Parent's right is closed → last sub gets (a, b]
+                    bt = "left_open"
+                else:
+                    # Parent's right is open → last sub gets (a, b)
+                    bt = "open"
             else:
+                # Interior subdomains are always open on both sides
                 bt = "open"
 
             subdomains.append(

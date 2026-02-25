@@ -127,7 +127,8 @@ class BesselSobolev(LinearOperator):
         domain_length = domain_interval.b - domain_interval.a
 
         f_samples = create_uniform_samples(
-            f, domain_tuple, self._n_samples, self._boundary_condition
+            f, domain_tuple, self._n_samples, self._boundary_condition,
+            domain_obj=domain_interval
         )
 
         coefficients = fast_spectral_coefficients(
@@ -260,7 +261,8 @@ class BesselSobolevInverse(LinearOperator):
         domain_length = domain_interval.b - domain_interval.a
 
         f_samples = create_uniform_samples(
-            f, domain_tuple, self._n_samples, self._boundary_condition
+            f, domain_tuple, self._n_samples, self._boundary_condition,
+            domain_obj=domain_interval
         )
 
         coefficients = fast_spectral_coefficients(
