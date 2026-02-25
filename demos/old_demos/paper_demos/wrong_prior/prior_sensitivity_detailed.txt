@@ -1,0 +1,33 @@
+Prior Sensitivity Study — Detailed Log
+======================================================================
+
+Case: Reference
+  DONE in 59.5s
+  RMSE=0.0359  MAE=0.0220  Coverage(2σ)=50%
+  Mean post σ=0.0097  Mean prior σ=0.0383
+  Uncertainty reduction=74.8%
+  Data misfit=502.4845  min eigenvalue=1.01e-09
+
+
+Case: Over-smooth
+  DONE in 51.1s
+  RMSE=0.0382  MAE=0.0243  Coverage(2σ)=25%
+  Mean post σ=0.0051  Mean prior σ=0.0286
+  Uncertainty reduction=82.2%
+  Data misfit=544.7801  min eigenvalue=-2.23e-12
+
+
+Case: Under-smooth
+  DONE in 63.7s
+  RMSE=0.0151  MAE=0.0110  Coverage(2σ)=100%
+  Mean post σ=0.0247  Mean prior σ=0.0760
+  Uncertainty reduction=67.5%
+  Data misfit=474.3673  min eigenvalue=7.86e-06
+
+
+Case: Shifted-mean
+  DONE in 59.7s
+  RMSE=0.4305  MAE=0.2713  Coverage(2σ)=0%
+  Mean post σ=0.0097  Mean prior σ=0.0383
+  Uncertainty reduction=74.8%
+  Data misfit=10074.9006  min eigenvalue=1.01e-09

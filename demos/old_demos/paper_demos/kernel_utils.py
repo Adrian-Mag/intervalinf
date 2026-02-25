@@ -6,15 +6,19 @@ sensitivity kernels from .dat files.
 
 Coordinate convention
 ---------------------
-The .dat files store kernel values indexed by **depth from surface** (km):
-  depth = 0  → surface
-  depth = 6371 → Earth centre
-
-The ``intervalinf`` Lebesgue-space domain uses **radius from centre** (km):
+**Volume kernels** (vp, vs, rho ``.dat`` files) store values indexed by
+**radius from centre** (km):
   radius = 0    → Earth centre
   radius = 6371 → surface
 
-Conversion: ``radius = EARTH_RADIUS_KM - depth``
+This matches the ``intervalinf`` Lebesgue-space domain convention directly;
+no coordinate conversion is required.
+
+**Topography kernels** (``topo_kernels_*`` files) store values indexed by
+**depth from surface** (km) at the relevant discontinuities:
+  e.g. ~5149 km (ICB), ~2891 km (CMB), 670 km, 400 km, …
+
+Use ``TopoKernel.get_value_at_depth`` with depth-from-surface values.
 
 Key public API
 --------------
@@ -181,7 +185,7 @@ class SensitivityKernelCatalog:
 
     @staticmethod
     def _load_two_col(filepath: Path) -> Tuple[np.ndarray, np.ndarray]:
-        """Load a two-column (depth, value) file, skipping ``#`` lines."""
+        """Load a two-column (radius_km, value) file, skipping ``#`` lines."""
         depths: List[float] = []
         values: List[float] = []
         with open(filepath) as fh:
@@ -199,7 +203,7 @@ class SensitivityKernelCatalog:
         mode_id: str,
         kernel_type: str,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Load (and cache) raw (depth_km, values) arrays."""
+        """Load (and cache) raw (radius_km, values) arrays."""
         key = (mode_id, kernel_type)
         if key not in self._cache:
             prefix_map = {
@@ -220,15 +224,15 @@ class SensitivityKernelCatalog:
     # ------------------------------------------------------------------
 
     def get_vp_data(self, mode_id: str) -> Tuple[np.ndarray, np.ndarray]:
-        """Return (depths_km, K_vp) for the given mode."""
+        """Return (radii_km, K_vp) for the given mode."""
         return self._get_data(mode_id, "vp")
 
     def get_vs_data(self, mode_id: str) -> Tuple[np.ndarray, np.ndarray]:
-        """Return (depths_km, K_vs) for the given mode."""
+        """Return (radii_km, K_vs) for the given mode."""
         return self._get_data(mode_id, "vs")
 
     def get_rho_data(self, mode_id: str) -> Tuple[np.ndarray, np.ndarray]:
-        """Return (depths_km, K_rho) for the given mode."""
+        """Return (radii_km, K_rho) for the given mode."""
         return self._get_data(mode_id, "rho")
 
     def get_topo_data(
@@ -259,9 +263,9 @@ class SensitivityKernelProvider(IndexedFunctionProvider):
 
     Coordinate system
     ~~~~~~~~~~~~~~~~~
-    The raw files use depth from surface (km); the provider automatically
-    converts to radius from centre (km) so that the returned ``Function``
-    objects live on the same grid as the ``Lebesgue`` model space.
+    The raw files already use radius from centre (km), matching the
+    ``Lebesgue`` model space domain directly. No coordinate conversion
+    is applied.
 
     The returned functions are created with an ``evaluate_callable``, so
     they support ``.restrict(sub_space)`` out of the box.
@@ -309,13 +313,13 @@ class SensitivityKernelProvider(IndexedFunctionProvider):
         target_space=None,
     ) -> Function:
         """
-        Interpolate kernel data (depth coordinates) and return a
+        Interpolate kernel data (radius-from-centre coordinates) and return a
         ``Function`` on *target_space* (defaults to ``self.space``).
         """
         space = target_space if target_space is not None else self._space_or_domain
 
-        # Convert depth → radius, then sort by ascending radius
-        radii = EARTH_RADIUS_KM - depths_km
+        # Data is already in radius-from-centre (km); just sort ascending.
+        radii = np.asarray(depths_km, dtype=float)  # name kept for compatibility
         sort_idx = np.argsort(radii)
         radii = radii[sort_idx]
         kernel_vals = kernel_vals[sort_idx]
