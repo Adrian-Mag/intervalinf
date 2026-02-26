@@ -98,12 +98,25 @@ select = [
     "C4",  # flake8-comprehensions
     "UP",  # pyupgrade
 ]
+
+[tool.ruff.lint]
+preview = true
+select = [
+    "E",
+    "W",
+    "F",
+    "I",
+    "B",
+    "C4",
+    "UP",
+]
 ignore = [
     "E501",  # line too long (handled by formatter)
     "B008",  # do not perform function calls in argument defaults
+    "E221",  # multiple spaces before operator (project prefers alignment)
 ]
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["intervalinf"]
 
 [tool.coverage.run]
