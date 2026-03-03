@@ -348,6 +348,7 @@ class KLSampler:
             domain, codomain, mapping, adjoint_mapping=adjoint_mapping
         )
 
+    @property
     def variance_function(self):
         """Return a function representing the pointwise variance.
 

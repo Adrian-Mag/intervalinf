@@ -266,7 +266,8 @@ All dataclasses support `.copy(**overrides)`.
 | `zero` | Returns zero function with `support=[]` |
 | `multiply(a, x)` | Scalar × coefficient function; propagates `support=[]` when `a==0`, else preserves `x.support` |
 | `add(x, y)` | Coefficient addition; returns `Function` with `support = union(x.support, y.support)` |
-| `axpy(a, x, y)` | In-place `y += a*x`; updates `y.support = union(y.support, x.support)` |
+| `ax(a, x)` | In-place `x *= a`; sets `x.support = []` when `a == 0` |
+| `axpy(a, x, y)` | In-place `y += a*x`; updates `y.support = union(y.support, x.support)` only when `a != 0` (preserves `y.support` for the zero-update case) |
 | `restrict(subspace, ...)` | Creates a `Lebesgue` on a subdomain |
 | `gram_matrix()` | Assembles and returns the full Gram matrix |
 | `inverse_gram_matrix()` | Returns $G^{-1}$ |
@@ -610,12 +611,12 @@ Providers support **dual-mode initialisation**: pass either a `HilbertSpace` (at
 | `MixedDNFunctionProvider` | Trigonometric | Shifted sine: $\sqrt{2/L}\sin((k+\tfrac{1}{2})\pi x/L)$ |
 | `MixedNDFunctionProvider` | Trigonometric | Shifted cosine: $\sqrt{2/L}\cos((k+\tfrac{1}{2})\pi x/L)$ |
 | `RobinFunctionProvider` | Trigonometric | $\mu_k \cos(\mu_k x) + (\alpha_0/\beta_0)\sin(\mu_k x)$; numerical roots |
-| `HatFunctionProvider` | FEM | Piecewise-linear hat functions on uniform grid; supports homogeneous/non-homogeneous |
-| `SplineFunctionProvider` | FEM | B-spline basis |
+| `HatFunctionProvider` | FEM | Piecewise-linear hat functions on uniform grid; supports homogeneous/non-homogeneous; **sets `support=(nodes[i-1], nodes[i+1])`** on each returned `Function` (clamped at domain boundaries) |
+| `SplineFunctionProvider` | FEM | B-spline basis; **sets `support=(knots[i], knots[i+degree+1])`** on each returned `Function`; `support=None` for degenerate zero-width spans; `get_function_by_parameters` infers support when `knots`/`degree`/`index` keys are present |
 | `BumpFunctionProvider` | Smooth | Smooth compactly-supported bump functions $C^\infty_0$ |
 | `BumpFunctionGradientProvider` | Smooth | Gradients of bump functions |
 | `WaveletFunctionProvider` | Wavelet | Haar (or other) wavelet basis |
-| `BoxCarFunctionProvider` | Step | Indicator functions on sub-intervals |
+| `BoxCarFunctionProvider` | Step | Indicator functions on sub-intervals; **sets `support=(a, b)`** on each returned `Function` |
 | `DiscontinuousFunctionProvider` | Step | Piecewise-constant discontinuous functions |
 | `KernelProvider` | Data | Sensitivity kernels loaded from file |
 | `NormalModesProvider` | Data | Normal-mode kernels for seismic applications |

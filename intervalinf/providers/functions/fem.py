@@ -110,10 +110,23 @@ class HatFunctionProvider(IndexedFunctionProvider):
             else:
                 name = f"hat_{index}(x={node_position:.3f})"
 
+            # Compute compact support bounds
+            left_bound = (
+                self.nodes[effective_index - 1]
+                if effective_index > 0
+                else self.nodes[0]
+            )
+            right_bound = (
+                self.nodes[effective_index + 1]
+                if effective_index < self.n_nodes - 1
+                else self.nodes[-1]
+            )
+
             func = Function(
                 self.function_context,
                 evaluate_callable=hat_func,
-                name=name
+                name=name,
+                support=(left_bound, right_bound)
             )
             self._cache[index] = func
 
@@ -188,18 +201,29 @@ class SplineFunctionProvider(
 
         # Create coefficient vector (1 at index, 0 elsewhere)
         n_coeffs = len(knots) - degree - 1
+        i = index % n_coeffs
         coeffs = np.zeros(n_coeffs)
-        coeffs[index % n_coeffs] = 1.0
+        coeffs[i] = 1.0
 
         spline = BSpline(knots, coeffs, degree)
 
         def spline_func(x):
             return spline(x)
 
+        # B-spline basis i has support [knots[i], knots[i+degree+1]]
+        support_left = knots[i]
+        support_right = knots[i + degree + 1]
+        support = (
+            (support_left, support_right)
+            if support_left < support_right
+            else None
+        )
+
         func = Function(
             self.function_context,
             evaluate_callable=spline_func,
-            name=f'spline_{index}_deg{degree}'
+            name=f'spline_{index}_deg{degree}',
+            support=support
         )
         self._cache[cache_key] = func
         return func
@@ -231,10 +255,21 @@ class SplineFunctionProvider(
         def spline_func(x):
             return spline(x)
 
+        # Derive support if parameters contain the basis-function index
+        support = None
+        if 'index' in parameters and 'knots' in parameters and 'degree' in parameters:
+            n_coeffs = len(knots) - degree - 1
+            i = parameters['index'] % n_coeffs
+            s_left = knots[i]
+            s_right = knots[i + degree + 1]
+            if s_left < s_right:
+                support = (s_left, s_right)
+
         return Function(
             self.function_context,
             evaluate_callable=spline_func,
-            name=f'spline_deg{degree}'
+            name=f'spline_deg{degree}',
+            support=support
         )
 
     def get_default_parameters(self) -> Dict[str, Any]:
