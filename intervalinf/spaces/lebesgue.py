@@ -472,11 +472,20 @@ class Lebesgue(HilbertSpace):
         """
         Construct a function from its basis coefficients.
 
+        Infers compact support from the active (non-negligible) basis
+        functions.  A basis function is considered active when
+        ``|cᵢ| > tol`` where ``tol = 1e-14``.
+
+        - If all coefficients are within tolerance → ``support=[]``.
+        - If any active basis function has ``support=None`` (globally
+          supported) → ``support=None``.
+        - Otherwise → union of the active basis-function supports.
+
         Args:
             coefficients: Array of length dim.
 
         Returns:
-            Function f = Σ cᵢ φᵢ.
+            Function f = Σ cᵢ φᵢ with inferred support metadata.
         """
         self._require_basis()
 
@@ -485,7 +494,23 @@ class Lebesgue(HilbertSpace):
                 f"Expected {self.dim} coefficients, got {len(coefficients)}"
             )
 
-        return Function(self, coefficients=coefficients.copy())
+        tol = 1e-14
+        active_intervals = []
+        inferred_support = []  # default: empty (all-zero)
+
+        for i, c in enumerate(coefficients):
+            if abs(c) > tol:
+                bf_support = self.get_basis_function(i).support
+                if bf_support is None:
+                    # Globally-supported basis function → no compact support
+                    inferred_support = None
+                    break
+                active_intervals.extend(bf_support)
+
+        if inferred_support is not None and active_intervals:
+            inferred_support = Function._union_supports([], active_intervals)
+
+        return Function(self, coefficients=coefficients.copy(), support=inferred_support)
 
     # ================================================================
     # Equality and properties
@@ -503,28 +528,38 @@ class Lebesgue(HilbertSpace):
 
     @property
     def zero(self) -> 'Function':
-        """The zero function in this space."""
-        return Function(self, evaluate_callable=lambda x: np.zeros_like(x))
+        """The zero function in this space (support=[])."""
+        return Function(
+            self,
+            evaluate_callable=lambda x: np.zeros_like(x, dtype=float),
+            support=[],
+        )
 
     # ================================================================
     # Vector space operations (override for coefficient consistency)
     # ================================================================
 
     def multiply(self, a: float, x: 'Function') -> 'Function':
-        """Compute scalar multiplication a*x."""
+        """Compute scalar multiplication a*x, propagating support."""
         if hasattr(x, 'coefficients') and x.coefficients is not None:
             new_coefficients = a * x.coefficients
-            return Function(self, coefficients=new_coefficients.copy())
+            new_support = [] if a == 0 else x.support
+            return Function(
+                self, coefficients=new_coefficients.copy(), support=new_support
+            )
         else:
             return a * x
 
     def add(self, x: 'Function', y: 'Function') -> 'Function':
-        """Compute vector addition x + y."""
+        """Compute vector addition x + y, propagating support as union."""
         x_has = hasattr(x, 'coefficients') and x.coefficients is not None
         y_has = hasattr(y, 'coefficients') and y.coefficients is not None
         if x_has and y_has:
             new_coefficients = x.coefficients + y.coefficients
-            return Function(self, coefficients=new_coefficients.copy())
+            new_support = Function._union_supports(x.support, y.support)
+            return Function(
+                self, coefficients=new_coefficients.copy(), support=new_support
+            )
         else:
             return x + y
 
@@ -532,6 +567,8 @@ class Lebesgue(HilbertSpace):
         """Perform in-place scaling x := a*x."""
         if hasattr(x, 'coefficients') and x.coefficients is not None:
             x.coefficients *= a
+            if a == 0:
+                x.support = []
         else:
             raise ValueError(
                 "Cannot perform in-place operation on function "
@@ -539,11 +576,13 @@ class Lebesgue(HilbertSpace):
             )
 
     def axpy(self, a: float, x: 'Function', y: 'Function') -> 'Function':
-        """Performs y := y + a*x and returns the result. Mutates y in-place when possible."""
+        """Performs y := y + a*x in-place, updating support to union(y, x)."""
         y_has = hasattr(y, 'coefficients') and y.coefficients is not None
         x_has = hasattr(x, 'coefficients') and x.coefficients is not None
         if y_has and x_has:
             y.coefficients += a * x.coefficients
+            if a != 0:
+                y.support = Function._union_supports(y.support, x.support)
             return y
         else:
             return self.add(y, self.multiply(a, x))

@@ -262,7 +262,11 @@ All dataclasses support `.copy(**overrides)`.
 | `to_dual(x)` | Returns `LinearFormKernel` with kernel $= x$ (Riesz map is identity in $L^2$) |
 | `from_dual(xp)` | Extracts kernel from `LinearFormKernel` |
 | `to_components(f)` | Projects $f$ onto the basis: $c_i = \langle f, \phi_i \rangle$ |
-| `from_components(c)` | Reconstructs $f = \sum c_i \phi_i$ as a callable `Function` |
+| `from_components(c)` | Reconstructs $f = \sum c_i \phi_i$; **infers `support`** from active basis functions (Phase 2): `support=[]` if all-zero, `support=None` if any active basis function is globally supported, else union of active basis-function supports (tol = 1e-14) |
+| `zero` | Returns zero function with `support=[]` |
+| `multiply(a, x)` | Scalar × coefficient function; propagates `support=[]` when `a==0`, else preserves `x.support` |
+| `add(x, y)` | Coefficient addition; returns `Function` with `support = union(x.support, y.support)` |
+| `axpy(a, x, y)` | In-place `y += a*x`; updates `y.support = union(y.support, x.support)` |
 | `restrict(subspace, ...)` | Creates a `Lebesgue` on a subdomain |
 | `gram_matrix()` | Assembles and returns the full Gram matrix |
 | `inverse_gram_matrix()` | Returns $G^{-1}$ |
