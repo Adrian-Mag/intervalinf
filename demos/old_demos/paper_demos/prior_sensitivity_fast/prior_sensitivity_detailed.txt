@@ -1,0 +1,61 @@
+
+======================================================================
+Run at 2026-02-26T18:27:03.861628
+Cases: ['Reference']
+======================================================================
+
+Case: Reference | DONE in 106.6s | RMSE=0.0143 | MAE=0.0085 | Coverage=60% | UncRed=81.9% | Misfit=313.5420 | MinEig=1.00e-09 | chi2/dof=2.7670
+
+======================================================================
+Run at 2026-02-26T18:28:14.372776
+Cases: ['R+']
+======================================================================
+
+Case: R+ | DONE in 50.4s | RMSE=0.0349 | MAE=0.0230 | Coverage=0% | UncRed=89.6% | Misfit=565.5848 | MinEig=-1.02e-11 | chi2/dof=6.4990
+
+======================================================================
+Run at 2026-02-26T18:29:25.823802
+Cases: ['R+']
+======================================================================
+
+Case: R+ | DONE in 51.7s | RMSE=0.0349 | MAE=0.0230 | Coverage=0% | UncRed=89.6% | Misfit=565.5848 | MinEig=-1.02e-11 | chi2/dof=6.4990
+
+======================================================================
+Run at 2026-02-26T18:45:35.874732
+Cases: ['Reference', 'R+', 'R-', 'V+', 'V-', 'M+', 'M-']
+======================================================================
+
+Case: Reference | DONE in 110.0s | RMSE=0.0143 | MAE=0.0085 | Coverage=60% | UncRed=81.9% | Misfit=313.5420 | MinEig=1.00e-09 | chi2/dof=2.7670
+Case: R+ | DONE in 50.0s | RMSE=0.0349 | MAE=0.0230 | Coverage=0% | UncRed=89.6% | Misfit=565.5848 | MinEig=-1.02e-11 | chi2/dof=6.4990
+Case: R- | DONE in 136.5s | RMSE=0.0138 | MAE=0.0086 | Coverage=100% | UncRed=72.6% | Misfit=200.1259 | MinEig=3.46e-06 | chi2/dof=0.8134
+Case: V+ | DONE in 120.8s | RMSE=0.0106 | MAE=0.0064 | Coverage=80% | UncRed=82.7% | Misfit=265.0160 | MinEig=3.92e-09 | chi2/dof=1.8982
+Case: V- | DONE in 102.0s | RMSE=0.0209 | MAE=0.0132 | Coverage=25% | UncRed=80.9% | Misfit=388.3180 | MinEig=2.55e-10 | chi2/dof=3.9792
+Case: M+ | DONE in 109.9s | RMSE=0.2398 | MAE=0.1427 | Coverage=5% | UncRed=81.9% | Misfit=6717.9553 | MinEig=1.00e-09 | chi2/dof=1559.3374
+Case: M- | DONE in 109.7s | RMSE=0.2510 | MAE=0.1533 | Coverage=0% | UncRed=81.9% | Misfit=6255.5990 | MinEig=1.00e-09 | chi2/dof=1357.8574
+
+======================================================================
+Run at 2026-02-26T19:10:18.150896
+Cases: ['M-']
+======================================================================
+
+Case: M- | DONE in 108.4s | RMSE=0.0143 | MAE=0.0085 | Coverage=60% | UncRed=81.9% | Misfit=313.5420 | MinEig=1.00e-09 | chi2/dof=2.7670
+
+======================================================================
+Run at 2026-02-26T19:15:37.660150
+Cases: ['M-']
+======================================================================
+
+Case: M- | DONE in 107.4s | RMSE=0.0235 | MAE=0.0138 | Coverage=50% | UncRed=81.9% | Misfit=251.6959 | MinEig=1.00e-09 | chi2/dof=1.7341
+
+======================================================================
+Run at 2026-02-26T21:20:27.830928
+Cases: ['Reference', 'R+', 'R-', 'V+', 'V-', 'M+', 'M-']
+======================================================================
+
+Case: Reference | DONE in 106.8s | RMSE=0.0143 | MAE=0.0085 | Coverage=60% | UncRed=81.9% | Misfit=313.5420 | MinEig=1.00e-09 | chi2/dof=2.7670
+Case: R+ | DONE in 49.1s | RMSE=0.0328 | MAE=0.0219 | Coverage=0% | UncRed=90.2% | Misfit=562.6831 | MinEig=-1.94e-11 | chi2/dof=6.4212
+Case: R- | DONE in 131.9s | RMSE=0.0162 | MAE=0.0088 | Coverage=100% | UncRed=69.4% | Misfit=205.0505 | MinEig=4.16e-07 | chi2/dof=0.8754
+Case: V+ | DONE in 120.5s | RMSE=0.0097 | MAE=0.0058 | Coverage=90% | UncRed=83.0% | Misfit=250.2535 | MinEig=7.71e-09 | chi2/dof=1.6130
+Case: V- | DONE in 86.9s | RMSE=0.0280 | MAE=0.0187 | Coverage=15% | UncRed=79.2% | Misfit=481.5602 | MinEig=5.20e-11 | chi2/dof=5.3639
+Case: M+ | DONE in 109.5s | RMSE=0.0155 | MAE=0.0101 | Coverage=60% | UncRed=81.9% | Misfit=635.0898 | MinEig=1.00e-09 | chi2/dof=13.1539
+Case: M- | DONE in 109.4s | RMSE=0.0235 | MAE=0.0138 | Coverage=50% | UncRed=81.9% | Misfit=251.6959 | MinEig=1.00e-09 | chi2/dof=1.7341

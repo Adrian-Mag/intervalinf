@@ -1,0 +1,1093 @@
+\documentclass[11pt]{article}
+
+% *Better typography*
+\usepackage[final]{microtype}
+\usepackage[T1]{fontenc}
+
+% *Math & AMS*
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{physics}
+\usepackage{bm}
+
+% *References & citations*
+\usepackage{geometry}
+\usepackage{natbib}
+\usepackage[hidelinks]{hyperref}
+\usepackage[nameinlink,capitalise]{cleveref}
+
+% *Drawing commutative diagrams*
+\usepackage{tikz-cd}
+\usepackage{caption}
+
+\geometry{margin=1in}
+
+\theoremstyle{remark}
+\newtheorem*{remark}{\textbf{Remark}}
+
+% Spaces & maps
+\newcommand{\modelspace}{\mathcal{M}}
+\newcommand{\dataspace}{\mathcal{D}}
+\newcommand{\propertyspace}{\mathcal{P}}
+\newcommand{\Gd}{\mathbf{G}}   % discrete forward
+\newcommand{\Tau}{\mathcal{T}}
+
+% Measures
+\newcommand{\prior}{\mu_{\modelspace}^0}
+\newcommand{\post}{\mu_{\modelspace}^{\mathbf{\tilde{d}}}}
+\newcommand{\discprior}{\mu_{\modelspace}^{0,N}}
+\newcommand{\discpost}{\mu_{\modelspace}^{\mathbf{\tilde{d}}, N}}
+
+
+% Discretization
+\newcommand{\Vspace}{\mathbb{V}_N}
+\newcommand{\mass}{\mathbf{M}}
+
+% Inner products
+\newcommand{\ipM}[2]{\langle #1, #2\rangle_{\modelspace}}
+\newcommand{\ipV}[2]{\langle #1, #2\rangle_{\Vspace}}
+\newcommand{\ipD}[2]{\langle #1, #2\rangle_{\dataspace}}
+
+% Math operators
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+
+\title{Discretization of Bayesian Inversion and Inference}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+We aim to sketch the derivation of a finite-dimensional discretization of a Bayesian problem following \cite{bui2013computational}, beginning from a continuous formulation.
+
+\section{The Continuous Problem}
+
+We consider the problem of inferring an unknown model parameter \( m \) from noisy observations \( \mathbf{\tilde{d}} \), where \( m \) lies in a separable Hilbert space \( \modelspace \) and \( \mathbf{\tilde{d}} \in \dataspace \), a finite‑dimensional Euclidean data space \( \dataspace \cong \mathbb{R}^{N_d} \) (\(N_d \in \mathbb{N}\) is the number of data).
+
+The relationship between the model and the data is described by a forward operator:
+\begin{equation}
+G: \modelspace \to \dataspace, \quad [G(m)]_i = \expval{K_i, m}_{\modelspace}
+\end{equation}
+assumed to be linear and bounded. The observed data is modeled as:
+\begin{equation}
+\mathbf{\tilde{d}} = G(m) + \bm{\eta},
+\end{equation}
+where \( \bm{\eta} \sim \mathcal{N}(0, \mathbf{C}_{\dataspace}) \) represents additive Gaussian noise with known symmetric positive‑definite covariance matrix \( \mathbf{C}_{\dataspace} \in \mathbb{R}^{N_d \times N_d} \).
+
+To regularize this ill‑posed inverse problem, we adopt a Bayesian framework. We model the unknown \( m \) as a random variable and assign a Gaussian prior:
+\begin{equation}
+m \sim \prior := \mathcal{N}(m_0, C_0),
+\end{equation}
+where \( m_0 \in \modelspace \) is the prior mean, and \( C_0: \modelspace \to \modelspace \) is a symmetric, positive‑definite trace‑class covariance operator.
+
+\begin{remark}[On Precision Operator]\label{rem:precision}
+It is often more natural in infinite dimensions to specify the \emph{precision operator} \(\mathcal{A}^2 := C_0^{-1}\), rather than \(C_0\) itself.  We assume there exists a densely‑defined, self‑adjoint, positive operator \(\mathcal{A}\colon \modelspace\to\modelspace\) such that
+\begin{equation}
+C_0 \;=\;\mathcal{A}^{-2},
+\label{eq:precision_root}
+\end{equation}
+and hence
+\[
+\mathcal{A}^2\,m = C_0^{-1} m.
+\]
+The operator \(\mathcal{A}\) is called the \emph{root‐precision operator}, and \(\mathcal{L} \colon \modelspace \to \modelspace = \mathcal{A}^2\) is called the \textit{precision operator}.  Its spectral properties (eigenvalues and eigenfunctions) determine the smoothness and correlation length of the prior.
+\end{remark}
+
+\begin{remark}[Notation for operators and components]\label{rem:notation}
+  We adopt the following typographic conventions throughout these notes.
+
+  \begin{itemize}
+    \item \textbf{Finite-dimensional objects.} Boldface letters denote finite-dimensional vectors and matrices (coefficient/representation objects). For example \(\mathbf{v}\in\mathbb R^N\) and \(\mathbf{A}\in\mathbb R^{N\times N}\).
+    \item \textbf{Infinite-dimensional objects.} Non-bold (lightface) letters denote infinite-dimensional operators or functions acting on the model Hilbert space \(\mathcal M\); e.g.\ \(G:\mathcal M\to\mathcal D\), \(C_0:\mathcal M\to\mathcal M\).
+    \item \textbf{Components / entries.} The components of a vector or the entries of a matrix are written with square brackets and subscripts:
+    \[
+      [\mathbf v]_i = v_i,\qquad [\mathbf A]_{ij} = A_{ij},
+      \qquad i,j=1,\dots,N.
+    \]
+    When an object is represented in a particular basis \(\{\phi_k\}_{k=1}^N\) we always mean the coordinates with respect to that basis; the matrix entries depend on the chosen basis.
+    \item \textbf{Adjoints and transposes.} We reserve \(^{\top}\) for the Euclidean transpose of a finite matrix and \(^{*}\) for the Hilbert adjoint of an operator. Discrete adjoints that incorporate mass/weight matrices will be written explicitly (for example, the discrete adjoint of \(\mathbf G\) with mass matrix \(\mathbf M\) and data weight \(\mathbf W\) is \(\mathbf G^*=\mathbf M^{-1}\mathbf G^{\top}\mathbf W\)).
+    \item \textbf{Infinite sequences.} When working with infinite coefficient sequences we use index notation \( (\alpha_i)_{i\ge1}\) or \(\{\alpha_i\}_{i=1}^\infty\); for finite coefficient vectors we write \(\mathbf\alpha=(\alpha_1,\dots,\alpha_N)^\top\) so that \([\mathbf\alpha]_i=\alpha_i\).
+  \end{itemize}
+\end{remark}
+
+
+\paragraph{Gaussian measure in terms of \(\mathcal{A}\)}
+Under this formulation the Gaussian prior can be equivalently written via its Karhunen–Loève expansion: if \(\{\varphi_k\}\) are eigenfunctions of \(\mathcal{A}\) with eigenvalues \(\{\lambda_k\}\), then
+\[
+m = m_0 + \sum_{k=1}^\infty \lambda_k^{-1}\,\bm{\xi}_k\,\varphi_k,
+\qquad
+\bm{\xi}_k\overset{i.i.d.}{\sim} \mathcal{N}(0,1).
+\]
+Thus \(\mathcal{A}\) controls the decay of \(\lambda_k\) and hence the regularity of samples from \(\prior\).
+
+The goal of Bayesian inversion is to compute or characterize the posterior distribution \( \post \) of \( m \) conditioned on the observed data \( \mathbf{\tilde{d}} \). According to Bayes’ theorem (in the infinite‑dimensional setting), the posterior is given formally by:
+\begin{equation}
+\frac{d\post}{d\prior}(m) \;\propto\; \exp\!\Bigl[-\tfrac12\,\|G(m)-\mathbf{\tilde{d}}\|_{\mathbf{C}^{-1}_{\dataspace}}^2\Bigr],
+\end{equation}
+where the data‐misfit norm is
+\begin{equation}
+\|\mathbf{v}\|_{\mathbf{C}^{-1}_{\dataspace}}^2
+\;:=\;
+\mathbf{v}^\top\,\mathbf{C}_{\dataspace}^{-1}\,\mathbf{v}.
+\end{equation}
+
+Bayesian inference takes this a step further and asks for a specific property of the true model. Let
+\[
+    \Tau \colon \modelspace \to \propertyspace, \quad [\Tau(m)]_i = \expval{T_i, m}_{\modelspace}
+\]
+be a linear and bounded mapping that takes in a model and outputs a finite number of real scalars that represent some local or global property of the model, such as a global average, a local average, a local gradient average, a Fourier basis coefficient, etc... . \(T_i \in \modelspace\) are the target kernels. The property space  \(\propertyspace\) is a finite dimensional Hilbert space equivalent to \(\mathbb{R}^{N_p}\) where \(N_p \in \mathbb{N}\) is the number of "properties" to be sought. By pushing the infinite-dimensional posterior measure \(\post\) through the property mapping \(\Tau\) we obtain the (Gaussian) property measure
+\begin{equation}
+    \mu_{\propertyspace} = \Tau_*\post
+    \label{eq:property_measure}
+\end{equation}
+
+\subsection{Continuous Solution}
+Using a Bayesian update we obtain the posterior measure on the model space \(\post = \mathcal{N}(\tilde{m}, C_{\modelspace})\) where:
+\begin{equation}
+    \boxed{
+    C_{\modelspace} = \left( G^* \mathbf{C}_{\dataspace}^{-1} G + C_0^{-1} \right)^{-1}, \quad
+    \tilde{m} = C_{\modelspace} \left( G^* \mathbf{C}_{\dataspace}^{-1} \mathbf{\tilde{d}} + C_0^{-1}m_0 \right).
+    }
+    \label{eq:posterior_mean_cov}
+\end{equation}
+ then we can obtain the property measure from the model posterior \(\mu_{\propertyspace} = \mathcal{N}(\mathbf{\tilde{p}}, \mathbf{C}_{\propertyspace})\):
+\begin{equation}
+    \boxed{
+    \mathbf{\tilde{p} = \Tau(\tilde{m}}), \quad \mathbf{C}_{\propertyspace} = \Tau C_{\modelspace} \Tau^*.
+    }
+    \label{eq:property_mean_and_cov}
+\end{equation}
+
+Alternatively, one may have
+\begin{equation}
+    \boxed{
+    C_{\modelspace} = C_0 - C_0 G^* \left( G C_0 G^* + \mathbf{C}_{\dataspace} \right)^{-1} G C_0 , \quad \tilde m = m_0 + C_0 G^* \left( G C_0 G^* + \mathbf{C}_{\dataspace} \right)^{-1} \left( \mathbf{\tilde d} - G(m_0) \right)
+    }
+\end{equation}
+The first form is often called the precision form, while the latter is called the Woodbury form.
+
+\section{Discretize - Update - Push}
+In the first case we will replace the model space with a parameter space \(\Vspace\) before the Bayesian update. In the following sections, we introduce a finite-dimensional subspace \(\modelspace_N \subset \modelspace\) and an associated parameter space \(\Vspace\) that encodes the coefficients needed to reconstruct any model in \(\modelspace_N\). We then define a discretized version of the prior measure \(\prior\) on \(\Vspace\), followed by discretizations of the forward map \(G\) and the property map \(\Tau\).
+
+The outcome is a fully discretized inference problem that approximates the original continuous formulation. This process acts like a mathematical surgical procedure: we construct an approximation to the infinite-dimensional model space, establish connections between this discretized model space and the unchanged data and property spaces, and finally remove the original continuous model space from the analysis. The associated prior and posterior measures are then redefined entirely in terms of the discretized spaces.
+
+\subsection{Basis Expansion and Finite-Dimensional Subspace}
+
+Let \( \{ \phi_i \}_{i=1}^\infty \) be a complete (but not necessarily orthonormal) basis for \( \modelspace \). Any model \( m \in \modelspace \) can be expressed formally as
+\begin{equation}
+m = \sum_{i=1}^\infty \alpha_i \phi_i,
+\end{equation}
+with coefficients \( \alpha_i \) determined by the structure of the basis and the inner products \( \expval{m, \phi_i}_{\modelspace} \).
+
+To discretize, we restrict to the finite-dimensional subspace
+\begin{equation}
+\modelspace_N := \text{span}\{ \phi_1, \dots, \phi_N \} \subset \modelspace.
+\end{equation}
+In parallel, we define the coefficient space
+\begin{equation}
+\Vspace := \text{span}\{ \mathbf{e}_1, \dots, \mathbf{e}_N \} = \mathbb{R}^N,
+\end{equation}
+with \( \{ \mathbf{e}_i \} \) the standard Euclidean basis of \( \mathbb{R}^N \). Vectors in \( \Vspace \) encode the coefficients of elements in \( \modelspace_N \).
+
+Given a model \( m \in \modelspace \), we define its projection \( P_N (m) \in \modelspace_N \) as the unique element minimizing the distance to \( m \) in the Hilbert norm:
+\begin{equation}
+P_N (m) = \argmin_{v \in \modelspace_N} \| m - v \|_{\modelspace}.
+\end{equation}
+This leads to the \textit{Galerkin orthogonality condition}:
+\begin{equation}
+\ipM{m - m_N}{\phi_j} = 0, \quad \forall j = 1, \dots, N,
+\end{equation}
+where
+\[
+m_N = \sum_{i=1}^N [\bm{\alpha}]_i \phi_i,
+\]
+and \(\bm{\alpha} \in \Vspace\) are the parameters used to approximate \(m\). Substituting into this condition gives the linear system
+\begin{equation}
+\sum_{i=1}^N \alpha_i \ipM{\phi_i}{\phi_j} = \ipM{m}{\phi_j}, \quad j = 1, \dots, N,
+\end{equation}
+or in matrix form:
+\begin{equation}
+\bm{M} \bm{\alpha} = \mathbf{b},
+\label{eq:parameter_equation}
+\end{equation}
+with
+\begin{equation}
+\boxed{[\mathbf{M}]_{ij} := \expval{\phi_i, \phi_j}_{\modelspace}}, \quad [\mathbf{b}]_j := \expval{\phi_j, m}_{\modelspace}, \quad \bm{\alpha} := (\alpha_1, \dots, \alpha_N)^\top \in \Vspace.
+\end{equation}
+which maps a model \( m \in \modelspace \) to the right-hand side vector \( \mathbf{b} \).
+
+We define the \textit{analysis operator} (\textit{to\_components} in pygeoinf)
+\begin{equation}
+\boxed{
+    \Pi: \modelspace \to \Vspace, \quad [\Pi(m)]_i := \sum_{j=1}^N [\mathbf{M}^{-1}]_{ij} \expval{\phi_j, m}_{\modelspace},
+}
+\end{equation}
+with adjoint (\textit{from\_components} in pygeoinf) defined by:
+\begin{equation}
+    \Pi^* \colon \Vspace \to \modelspace, \quad \Pi^*(\bm{\alpha}) = \sum_{i=1}^N [\bm{\alpha}]_i \phi_i
+\end{equation}
+Then we can rewrite equation \eqref{eq:parameter_equation} as:
+\begin{equation}
+    \bm{\alpha} = \Pi(m)
+\end{equation}
+We further define the \textit{synthesis map}
+\begin{equation}
+\boxed{
+    \pi: \Vspace \to \modelspace_N, \quad \pi(\bm{\alpha}) = \sum_{i=1}^N \bm \alpha_i \phi_i,
+    }
+\end{equation}
+which has the same form as \(\Pi^*\) but a different codomain. Its adjoint is
+\begin{equation}
+    \pi^*: \modelspace_N \to \Vspace, \quad [\pi^*(m)]_i := \sum_{j=1}^N [\mathbf{M}^{-1}]_{ij} \expval{\phi_j, m}_{\modelspace_N},
+\end{equation}
+where \(\expval{\cdot, \cdot}_{\modelspace_N}\) is the restriction of \(\expval{\cdot, \cdot}_{\modelspace}\) to \(\modelspace_N\).
+
+We also introduce the embedding mapping
+\begin{equation}
+    \epsilon \colon \modelspace_N \to \modelspace, \quad \epsilon(m) = m,
+    \label{eq:embedding}
+\end{equation}
+and note that
+\begin{equation}
+    \Pi^* = \epsilon \pi
+\label{eq:PI_adjoint}
+\end{equation}
+
+The matrix \( \bm{M} \) is called the \textit{mass matrix}. It is symmetric and positive definite due to the linear independence of the basis. In particular, for any nonzero \( \bm{\alpha} \in \Vspace \),
+\begin{equation}
+\bm{\alpha}^\top \bm{M} \bm{\alpha} = \ipM{\epsilon \pi(\bm{\alpha})}{\epsilon \pi(\bm{\alpha})} > 0.
+\end{equation}
+This matrix \( \bm{M} \) plays a central role in defining the geometry of \( \Vspace \), acting as a metric tensor induced from \( \modelspace \).
+
+The quasi-projection operator \( P'_N: \modelspace \to \modelspace_N \) can then also be defined by
+\begin{equation}
+P'_N = \pi \Pi,
+\end{equation}
+which maps any \( m \in \modelspace \) to its best approximation \( m_N \in \modelspace_N \) in the energy norm. We call it "quasi" because a true projection operator \(P_N\) must follow the rule
+\[
+    P_NP_N=P_N
+\]
+which requires \(P_N\) to be a square operator (domain and codomain are the same). The true projection operator is given by
+\begin{equation}
+    P_N \colon \modelspace \to \modelspace, \quad P_N = \Pi^* \Pi
+\end{equation}
+
+\subsection{Induced Inner Product on \( \Vspace \)}
+
+Given coefficient vectors \( \bm{\alpha}, \bm{\beta} \in \Vspace \), their corresponding elements in the finite-dimensional subspace \( \modelspace_N \subset \modelspace \) are given by the synthesis map \( \pi(\bm{\alpha}) \) and \( \pi(\bm{\beta}) \). We define an inner product on \( \Vspace \) that is consistent with the geometry of the function space \( \modelspace \):
+\begin{equation}
+\label{eq:inner_product_vn}
+\ipV{\bm{\alpha}}{\bm{\beta}} := \expval{\pi(\bm{\alpha}), \pi(\bm{\beta})}_{\modelspace_N} = \bm{\alpha}^\top \bm{M} \bm{\beta},
+\end{equation}
+The induced norm is then given by:
+\begin{equation}
+\| \bm{\alpha} \|_{\Vspace} := \sqrt{\bm{\alpha}^\top \bm{M} \bm{\alpha}} = \| \pi (\bm{\alpha}) \|_{\modelspace_N}.
+\end{equation}
+
+This inner product equips \( \Vspace \) with a Hilbert space structure, where geometric notions such as orthogonality, norms, and adjoints are inherited from the continuous setting via the synthesis map \( \pi \).
+
+In this framework, linear operators \( \mathbf{B} : \Vspace \to \Vspace \) have adjoints with respect to the induced inner product defined in \cref{eq:inner_product_vn}. That is, the adjoint \( \mathbf{B}^* \) is the unique operator satisfying:
+\begin{equation}
+\ipV{\mathbf{B}^* \bm{\alpha}_1}{\bm{\alpha}_2} = \ipV{\bm{\alpha}_1}{\mathbf{B} \bm{\alpha}_2} \quad \text{for all } \bm{\alpha}_1, \bm{\alpha}_2 \in \Vspace.
+\end{equation}
+Substituting the definition of the inner product yields:
+\begin{equation}
+\label{eq:adjoint_operator}
+\boxed{
+\mathbf{B}^* = \bm{M}^{-1} \mathbf{B}^\top \bm{M}.
+}
+\end{equation}
+
+This relation is essential for constructing symmetric or self-adjoint operators in the discretized setting, consistent with their continuous counterparts.
+
+
+\subsection{Discretization of the Prior Measure on \( \modelspace \)}
+
+In the Bayesian framework, the prior distribution \( \prior \) describes our initial knowledge or belief about the model parameter \( m \). In the continuous setting, we assumed that \( m \) follows a Gaussian distribution with mean \( m_0 \in \modelspace \) and covariance operator \( C_0 \). Specifically, we have
+\[
+m \sim \prior := \mathcal{N}(m_0, C_0),
+\]
+where \( m_0 \) is the prior mean, and \( C_0: \modelspace \to \modelspace \) is a symmetric, positive-definite trace-class covariance operator that encodes the prior uncertainty in \( m \).
+
+In order to perform computations in practice, we discretize the prior measure by restricting the model parameter \( m \) to the finite-dimensional subspace \( \modelspace_N \subset \modelspace \). This restriction leads to a finite-dimensional approximation of the prior distribution.
+
+\paragraph{1. Discretizing the Prior Mean}
+
+The prior mean \( m_0 \in \modelspace \) is discretized by projecting it onto the subspace \( \modelspace_N \). Specifically, we define the discretized prior mean \( m_{0,N} \in \modelspace_N \) as the projection of \( m_0 \) onto \( \modelspace_N \):
+\[
+m_{0,N} = P'_N (m_0)
+\]
+This provides the best approximation of the prior mean \( m_0 \) in the finite-dimensional subspace \( \modelspace_N \). The corresponding mean on \(\Vspace\) is then
+\begin{equation}
+    \bm{\alpha}_0 = \Pi(m_0)
+    \label{eq:disc_prior_mean}
+\end{equation}
+
+\paragraph{2. Discretization of the Prior Covariance}
+
+To approximate the prior covariance operator \( C_0: \modelspace \to \modelspace \) in the coefficient space \( \Vspace \), we first define a matrix \( \mathbf{A} : \Vspace \to \Vspace \) that will represent the discretized root-precision operator and satisfies the following relation:
+\begin{equation}
+\label{eq:cov_inner_product_match}
+\ipM{\phi_i}{\mathcal{A} (\phi_j)} = \ipV{\mathbf{e}_i}{\mathbf{A} \mathbf{e}_j}, \quad i,j = 1, \dots, N.
+\end{equation}
+
+Here, the inner product on the right-hand side is the one induced by the mass matrix \( \bm{M} \), that is,
+\[
+\ipV{\mathbf{u}}{\mathbf{v}} := \mathbf{u}^\top \bm{M} \mathbf{v}.
+\]
+
+Defining the \textit{stifness matrix} \( \mathbf{K}_{\mathcal{A}} \in \mathbb{R}^{N \times N} \) with entries
+\begin{equation}
+\label{eq:K_definition}
+[\mathbf{K}_{\mathcal{A}}]_{ij} := \ipM{\phi_i}{\mathcal{A} (\phi_j)},
+\end{equation}
+we obtain the discretized root-precision operator
+\begin{equation}
+\label{eq:A_discretized}
+\boxed{
+\mathbf{A} = \bm{M}^{-1} \mathbf{K}_{\mathcal{A}}.
+}
+\end{equation}
+
+We can now construct the finite dimensional prior covariance approximation as
+\begin{equation}
+    \label{eq:C0_discretized}
+    \boxed{
+    \mathbf{C}_0 = \mathbf{A}^{-2}.
+    }
+\end{equation}
+This construction ensures that \( \mathbf{C}_0 \) preserves the action of \( C_0 \) in the sense of inner products on the subspace \( \modelspace_N \), represented via the basis coefficient space \( \Vspace \).
+
+\paragraph{Note}
+We can also define using only operators (see appendix \ref{appendix:prior_discretizatoin})
+\begin{equation}
+    \mathbf{A} = \Pi \mathcal{A} \Pi^*
+\end{equation}
+
+\paragraph{3. Discretized Prior Measure}
+
+With the discretized mean \( \bm{\alpha}_0 \) and covariance matrix \( \mathbf{C}_0 \), the discretized prior measure \( \discprior \) on \( \Vspace \) is now approximated as a multivariate normal distribution:
+\[
+\bm{\alpha} \sim \mathcal{N}(\bm{\alpha}_0, \mathbf{C}_0),
+\]
+where \( \bm{\alpha}_0 \) is the coefficient vector corresponding to the discretized prior mean \( m_{0,N} \), and \( \mathbf{C}_0 \) is the covariance matrix.
+
+Thus, the discretized prior measure is fully specified by the vector \( \bm{\alpha}_0 \) and the covariance matrix \( \mathbf{C}_0 \). This allows us to sample from the prior distribution and compute posterior distributions using the finite-dimensional representation of the model space. For example, we may compute the  LU decomposition of \(\mathbf{C}_0\) and use it to sample \(\bm \alpha\) values that are then synthesized into members of \(\modelspace_N\) via \(\pi\).
+
+Furthermore, we can define the prior pdf (Radon-Nykodim derivative w.r.t. the Lebesgue measure)
+\begin{equation}
+    \dv{\discprior}{\mu_{\mathcal{L}}} \; \propto \; \exp\qty[-\frac{1}{2}\norm{\mathbf{A}(\bm{\alpha} - \bm{\alpha}_0)}_{\Vspace}^2]
+\end{equation}
+
+\subsection{Discretization of the Forward Operator and Its Adjoint}
+
+We now discretize the continuous forward map
+\begin{equation}
+G \colon \modelspace \to \dataspace,
+\label{eq:Gc_def}
+\end{equation}
+onto the finite–dimensional coefficient space $\Vspace$.
+
+\subsubsection{Discrete Forward Matrix}
+
+We define the discrete forward operator
+\begin{equation}
+\Gd\colon \Vspace \to \dataspace,
+\quad
+\Gd\bm{\alpha} := G\bigl(\Pi^*(\bm{\alpha})\bigr),
+\label{eq:Gd_def}
+\end{equation}
+or more generally
+\begin{equation}
+    \boxed{
+    \mathbf{G} = G \Pi^*
+    }
+\end{equation}
+If $\{\psi_k\}_{k=1}^{N_d}$ is a basis for $\dataspace$, then the $N_d\times N$ matrix entries are
+\begin{equation}
+[\mathbf{G}]_{ij}
+\;=\;
+\expval{\psi_i, G(\phi_j)}_{\dataspace},
+\quad
+i=1,\dots,N,\;j=1,\dots,N_d.
+\label{eq:Gcmp_entries}
+\end{equation}
+or equivalently
+\begin{equation}
+    [\mathbf{G}]_{ij} = \expval{G^*(\psi_i), \phi_j}_{\modelspace} = \expval{K_i, \phi_j}_{\modelspace},
+\end{equation}
+Hence for any $\bm{\alpha}\in\Vspace$,
+\begin{equation}
+\Gd\,\bm{\alpha}
+\;=\;
+\sum_{j=1}^N \alpha_j \,G(\phi_j)
+\;\in\;\dataspace,
+\label{eq:Gd_action}
+\end{equation}
+and in coordinates $\mathbf{d}\in\mathbb{R}^{N_d}$,
+\begin{equation}
+\mathbf{d} = \Gd\,\bm{\alpha}.
+\label{eq:algebraic_forward}
+\end{equation}
+
+\subsubsection{Adjoint of the Discrete Forward Map}
+
+Equip $\dataspace$ with inner product $\expval{\cdot,\cdot}_{\dataspace}$ (matrix representation $\mathbf{W}$ if non‑Euclidean) and $\Vspace$ with the induced inner product \cref{eq:inner_product_vn}.  The adjoint
+\[
+\Gd^*\colon \dataspace \to \Vspace
+\]
+is defined by
+\begin{equation}
+\expval{\Gd\,\bm{\alpha},\,\mathbf{d}}_{\dataspace}
+\;=\;
+\expval{\bm{\alpha},\,\Gd^*\,\mathbf{d}}_{\Vspace}
+\quad
+\forall\,\bm{\alpha}\in\Vspace,\;\mathbf{d}\in\dataspace.
+\label{eq:Gd_adjoint_def}
+\end{equation}
+In matrix form this becomes
+\begin{equation}
+\Gd^*
+=
+\bm{M}^{-1}\,\Gd^\top\,\mathbf{W}.
+\label{eq:Gd_adjoint_matrix}
+\end{equation}
+If $\mathbf{W}=\mathbf{I}$ (Euclidean data inner product) then
+$\Gd^*=\bm{M}^{-1}\Gd^\top$.
+
+\subsection{Discretization of the Property Operator and Its Adjoint}
+\label{sec:DiscretizedTau}
+
+We now describe how to discretize the \emph{property operator} \(\Tau \colon \modelspace \to \propertyspace\) and its adjoint \(\Tau^* \colon \propertyspace \to \modelspace\), in a manner compatible with the finite-dimensional subspace \(\modelspace_N = \operatorname{span}\{\phi_1, \dots, \phi_N\} \subset \modelspace\).
+We aim to find a matrix \(\mathbf{T} \in \mathbb{R}^{N_p \times N}\) such that
+\begin{equation}
+  \Tau\big(\Pi^*(\bm{\alpha})\big)
+  = \mathbf{T}\,\bm{\alpha},
+  \label{eq:Tau_discrete}
+\end{equation}
+i.e., \(\mathbf{T}\) discretizes the action of \(\Tau\), and can be neatly written as
+\begin{equation}
+    \boxed{
+        \mathbf{T} = \Tau \Pi^*
+    }
+    \label{eq:Tau_disc}
+\end{equation}
+
+\paragraph{Matrix Entries of \(\mathbf{T}\).}
+
+Recall that the property map is defined by a set of target kernels \(\{T_i\}_{i=1}^{N_p} \subset \modelspace\) such that
+\[
+  \Tau(m) = \left(\langle T_1, m \rangle_{\modelspace}, \dots, \langle T_{N_p}, m \rangle_{\modelspace} \right)^\top.
+\]
+Thus, the entries of the matrix \(\mathbf{T}\) are given by
+\begin{equation}
+  [\mathbf{T}]_{ij}
+  = \langle T_i,\,\phi_j\rangle_{\modelspace},
+  \qquad i = 1,\dots,N_p,\; j = 1,\dots,N.
+  \label{eq:T_matrix_entries}
+\end{equation}
+
+\paragraph{Adjoint Operator \(\mathbf{T}^*\).}
+
+The adjoint operator \(\mathbf{T}^*\colon \propertyspace \to \Vspace\) satisfies:
+\[
+  \langle \mathbf{T}(\bm{\alpha}),\, \mathbf{p} \rangle_{\propertyspace}
+  = \langle \bm{\alpha},\,\mathbf{T}^*(\mathbf{p}) \rangle_{\Vspace}
+  \quad \text{for all } m \in \modelspace,\, \mathbf{p} \in \propertyspace.
+\]
+
+Then the adjoint matrix \(\mathbf{T}^* \in \mathbb{R}^{N \times N_p}\) is given by:
+\begin{equation}
+  \boxed{
+  \mathbf{T}^* = \mathbf{M}^{-1}\,\mathbf{T}^\top\
+  }
+  \label{eq:T_adjoint_matrix}
+\end{equation}
+
+\subsection{Discretized Property measure}
+
+We know that on the property space we have the property measure \(\mu_{\propertyspace} = \mathcal{N}(\mathbf{\tilde{p}}, C_{\propertyspace})\) given by
+\[
+    \boxed{
+    \mathbf{\tilde{p}} = \Tau(\tilde{m}) ,\quad C_{\propertyspace} = \Tau C_{\modelspace} \Tau^*
+    }
+    \label{eq:property_cov}
+\]
+and
+\[
+    \boxed{
+    C_{\modelspace} = \left( G^* \mathbf{C}_{\dataspace}^{-1} G + C_0^{-1} \right)^{-1}
+    }
+\]
+The continuous posterior covariance maps elements from the model space back to the model space. However, in the past few sections we have constrained the model space to a finite subspace, then created an isomorphic space \(\Vspace\) that encodes the parameters that can describe any model in the finite subspace \(\modelspace_N\), then we created discretized versions of the prior model space measure but for \(\Vspace\) and discretized forward and property mappings from \(\Vspace\) to \(\dataspace\) and \(\propertyspace\), therefore creating a new problem that approximates the original problem. Since the discretized prior measure \(\discprior\) is also Gaussian, and the discretized forward \(\mathbf{G}\) is still linear, we can obtain the discretized posterior \(\discpost = \mathcal{N}(\bm{\tilde \alpha}, \mathbf{C}_{\mathbb V_N})\) where
+\begin{equation}
+    \boxed{
+    \mathbf{C}_{\Vspace} = \left( \mathbf{G}^* \mathbf{C}_{\dataspace}^{-1} \mathbf{G} + \mathbf{C}_0^{-1} \right)^{-1}, \quad \bm{\tilde{\alpha}} = \mathbf{C}_{\Vspace} \left( \mathbf{G}^* \mathbf{C}_{\dataspace}^{-1} \mathbf{\tilde{d}} + \mathbf{C}_0^{-1} \bm{\alpha}_0 \right).
+    }
+\end{equation}
+
+We then push the discretized posterior through the discretized property map to obtain the discretized property measure \(\mu_{\propertyspace}^\mathbf{\tilde d} = \mathcal{N}(\mathbf{\tilde{p}}^d, \mathbf{C}_{\propertyspace}^{\mathbf{\tilde d}})\) with
+\begin{equation}
+    \boxed{
+        \mathbf{\tilde{p}}^\mathbf{\tilde d} = \mathbf{T}(\bm{\tilde{\alpha}}), \quad \mathbf{C}_{\propertyspace}^\mathbf{\tilde d} = \mathbf{T} \mathbf{C}_{\Vspace} \mathbf{T}^*
+    }
+\end{equation}
+
+
+\[
+\begin{tikzcd}[row sep=large, column sep=large]
+& & \dataspace
+\arrow[loop right, "\mathbf{C}_{\dataspace}"{right}] \\
+\modelspace
+  \arrow[r, shift left=1ex, "\Pi"]
+  \arrow[loop above, "C_0"]
+  \arrow[rru, bend left=20, "G"{above}]
+  \arrow[rrd, bend right=20, "\Tau"{below}]
+  \arrow[loop below, "C_{\modelspace}"]
+  \arrow[d, bend right=40, "P'_N"{left, xshift=0.5ex}]
+  \arrow[loop left, "P_N"]
+&
+\mathbb V_N
+  \arrow[ld, "\pi"{right, yshift=0.5ex, xshift=2ex}]
+  \arrow[loop above, "\mathbf{C}_0"]
+  \arrow[ru, "\Gd"]
+  \arrow[rd, "\mathbf{T}"']
+  \arrow[loop below, "\mathbf{C}_{\Vspace}"]
+  \arrow[loop right, "\mathbf{M}"]
+& \\
+\modelspace_N
+    \arrow[u, bend right=40, "\epsilon"{right}]
+& & \propertyspace
+\arrow[loop right, "\mathbf{C}_{\propertyspace}"]
+\arrow[loop above, "\mathbf{C}^\mathbf{\tilde d}_{\propertyspace}"]
+\end{tikzcd}
+\]
+\captionof{figure}{
+Diagram of spaces and mappings in the discretized inference framework.
+The model space \(\modelspace\) is projected via \(\Pi\) into the coefficient space \(\mathbb{V}_N\), where computations are performed.
+The synthesis operator \(\pi\) reconstructs models in the subspace \(\modelspace_N\).
+The forward map \(G\) (continuous) and its discretized version \(\mathbf{G}\) relate model coefficients to data in \(\dataspace\).
+The property mapping \(\Tau\) (continuous) and its discretization \(\mathbf{T}\) map model parameters to derived physical properties in \(\propertyspace\).
+Covariances in each space are indicated by the respective loop arrows.
+}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{llll}
+\hline
+Name                       & Symbol            & Type                         & Description                                  \\\hline
+Model space                & $\mathcal{M}$     & Hilbert (infinite‑dim)       & Space of all admissible models               \\
+Finite model subspace      & $\mathcal{M}_N$   & Subspace ($N$‑dim)           & Span of first $N$ basis functions            \\
+Coefficient space          & $\mathbb V_N$     & $\mathbb R^N$                & Basis coefficient vectors                    \\
+Data space                 & $\mathcal{D}$     & Hilbert ($N_d$‑dim)          & Observation space, $\cong\mathbb R^{N_d}$    \\
+Noise space                & —                 & same as $\mathcal{D}$        & Space of additive noise $\eta$               \\
+Property space             & $\mathcal{P}$     & Hilbert (\(N_p\)‑dim)         & Space of all inferred properties             \\
+
+\hline
+\end{tabular}
+\caption{Spaces appearing in the discretization framework.}
+\end{table}
+
+
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lllll}
+\hline
+Name & Symbol & Domain & Codomain & Description \\\hline
+Analysis operator & $\Pi$       & $\modelspace$   & $\mathbb V_N$    & Maps model to coefficient vector \\
+Synthesis map     & $\pi$       & $\mathbb V_N$   & $\modelspace_N$  & Reconstructs model from coefficients \\
+Pseudo Projection        & $P'_N$       & $\modelspace$   & $\modelspace_N$  & Pseudo Galerkin projection onto $\modelspace_N$ \\
+Projection        & $P_N$       & $\modelspace$   & $\modelspace$  & Galerkin projection onto $\modelspace_N$ \\
+Embedding & $\epsilon$ & $\modelspace_N$ & \(\modelspace\) & Embedding of \(\modelspace_N\) into \(\modelspace\) \\
+Continuous forward& $G$       & $\modelspace$   & $\dataspace$     & Infinite‐dimensional forward map \\
+Discrete forward  & $\Gd$       & $\mathbb V_N$   & $\dataspace$     & Matrix‐approximation of $G$ \\
+Property map (cont.) & $\Tau$ & $\modelspace$ & $\propertyspace$ & Maps model to property \\
+Property map (disc.) & $\mathbf{T}$ & $\mathbb V_N$ & $\propertyspace$ & Discretized property map \\
+Prior cov. (cont.)& $C_0$       & $\modelspace$   & $\modelspace$    & Continuous prior covariance operator \\
+Prior cov. (disc.)& $\mathbf C_0$ & $\mathbb V_N$ & $\mathbb V_N$    & Discretized covariance matrix  \\
+Posterior cov. (cont.) & $C_{\modelspace}$ & $\modelspace$ & $\modelspace$ & Continuous posterior covariance operator \\
+Posterior cov. (disc.) & $\mathbf{C}_{\Vspace}$ & $\Vspace$ & $\Vspace$ & Discretized posterior covariance matrix \\
+Property cov. (cont) & $\mathbf{C}_{\propertyspace}$ & $\propertyspace$ & $\propertyspace$ & Continuous property covariance matrix  \\
+Property cov. (disc.) & $\mathbf{C}^d_{\propertyspace}$ & $\propertyspace$ & $\propertyspace$ & Discretized property covariance matrix \\
+Data cov. & $\mathbf{C}_{\dataspace}$ & $\dataspace$ & $\dataspace$ & Data covariance matrix \\
+\hline
+\end{tabular}
+\caption{Linear mappings in the discretization framework}
+\end{table}
+
+
+\section{Update -- Discretize -- Push}
+
+In this section we perform the Bayesian update in the continuous setting, then project the resulting posterior onto the finite‐dimensional subspace, and finally push the discretized posterior through the discretized property map.
+
+\subsection{Discretize Posterior}
+
+The continuous posterior is
+\[
+  \post = \mathcal{N}\bigl(\tilde m,\;C_{\modelspace}\bigr),
+  \quad
+  C_{\modelspace} = \bigl(G^*\,\mathbf{C}_{\dataspace}^{-1}\,G + C_0^{-1}\bigr)^{-1},
+  \quad
+  \tilde m = C_{\modelspace}\,\bigl(G^*\,\mathbf{C}_{\dataspace}^{-1}\,\mathbf{\tilde d} + C_0^{-1}\,m_0\bigr).
+\]
+Projecting mean and covariance onto \(\modelspace_N\) gives
+\begin{align}
+  \tilde m_{N}
+  &= P'_N(\tilde m)
+  \label{eq:disc_post_mean}\\
+  C_{N}
+  &= P'_N\,C_{\modelspace}\,(P'_N)^*
+  \label{eq:disc_post_cov}
+\end{align}
+In coefficient space \(\Vspace\), define
+\[
+  \bm{\tilde\alpha}
+  = \Pi(\tilde m),
+  \qquad
+  \mathbf{C}_{\Vspace}
+  = \Pi\,C_{\modelspace}\,\Pi^*.
+\]
+Then the discretized posterior on \(\Vspace\) is
+\[
+  \bm{\alpha} \sim \mathcal{N}\bigl(\bm{\tilde\alpha},\,\mathbf{C}_{\Vspace}\bigr).
+\]
+
+\subsection{Discretize Property Measure}
+
+The continuous property operator
+\[
+  \Tau \colon \modelspace \to \propertyspace,
+  \quad
+  \Tau(m)_i = \langle T_i,\,m\rangle_{\modelspace},
+\]
+is discretized by the matrix \(\mathbf{T}\in\mathbb{R}^{N_p\times N}\).
+Pushing the discretized posterior through \(\mathbf{T}\) yields the discrete property measure
+\[
+  \mathbf{\tilde p}^d
+  = \mathbf{T}\,\bm{\tilde\alpha},
+  \qquad
+  \mathbf{C}_{\propertyspace}^{\mathbf{\tilde d}}
+  = \mathbf{T}\,\mathbf{C}_{\Vspace}\,\mathbf{T}^*,
+\]
+i.e.\ \(\mathcal{N}(\mathbf{\tilde p}^d,\,\mathbf{C}_{\propertyspace}^{\mathbf{\tilde d}})\) on \(\propertyspace\).
+
+
+
+\section{Update -- Push -- Discretize}
+
+In this final approach, we perform the Bayesian update entirely in the continuous setting, then push the resulting model posterior through the continuous property map \(\Tau \colon \modelspace \to \propertyspace\), and only afterward consider discretization if necessary.
+
+The posterior distribution on the model space is given by
+\[
+  \post = \mathcal{N}\bigl(\tilde m,\,C_{\modelspace}\bigr),
+  \quad
+  C_{\modelspace} = \bigl(G^*\,\mathbf{C}_{\dataspace}^{-1}\,G + C_0^{-1}\bigr)^{-1},
+  \quad
+  \tilde m = C_{\modelspace}\,\bigl(G^*\,\mathbf{C}_{\dataspace}^{-1}\,\mathbf{\tilde d} + C_0^{-1}\,m_0\bigr).
+\]
+
+We then push this posterior through the continuous property mapping \(\Tau\), yielding a Gaussian distribution on \(\propertyspace\) with:
+\[
+  \mathbf{\tilde{p}} = \Tau(\tilde m),
+  \qquad
+  \mathbf{C}_{\propertyspace} = \Tau\,C_{\modelspace}\,\Tau^*.
+\]
+
+Importantly, the property space \(\propertyspace\) is assumed to be finite-dimensional, and \(\Tau\) is typically a bounded linear operator. As a result, both the mean \(\mathbf{\tilde{p}}\) and the covariance \(\mathbf{C}_{\propertyspace}\) are already finite-dimensional objects. It may appear that there is no need to discretize anything in this case, but this is not usually the case. Applying \(C_{\modelspace}\) on \(\Tau^*\) may involve solving PDE equations, which will require discretization.
+
+
+\section{Comparison}
+
+We compare the three strategies for computing posterior statistics in the property space \(\propertyspace\), focusing on the structure of the resulting covariance and the order of operations.
+
+\vspace{1em}
+\noindent
+\textbf{1. Discretize -- Update -- Push}
+
+We begin by discretizing the model space using a basis \(\{ \phi_i \}_{i=1}^N\), obtaining a finite-dimensional subspace \(\Vspace\). The prior, forward operator, and property map are all projected onto this subspace, and Bayesian inference is performed entirely in coefficient space. The inferred distribution is then pushed through the discretized property map \(\mathbf{T} = \Tau \Pi^*\).
+
+Key expressions:
+\begin{gather}
+  \bm{\tilde{\alpha}} = \mathbf{C}_{\Vspace} \left( \mathbf{G}^* \mathbf{C}_{\dataspace}^{-1} \tilde{\mathbf{d}} + \mathbf{C}_0^{-1} \bm{\alpha}_0 \right),
+  \qquad
+  \mathbf{C}_{\Vspace} = \left( \mathbf{G}^* \mathbf{C}_{\dataspace}^{-1} \mathbf{G} + \mathbf{C}_0^{-1} \right)^{-1}, \\
+  \tilde{\mathbf{p}}^d = \mathbf{T}(\bm{\tilde{\alpha}}),
+  \qquad
+  \mathbf{C}_{\propertyspace}^{\mathbf{\tilde d}} = \mathbf{T} \mathbf{C}_{\Vspace} \mathbf{T}^*.
+\end{gather}
+
+Supporting definitions:
+\[
+  \bm{\alpha}_0 = \Pi(m_0),
+  \quad
+  \mathbf{G} = G \Pi^*,
+  \quad
+  \mathbf{C}_0^{-1} = \mathbf{A}^2,
+  \quad
+  \mathbf{A} = \Pi \mathcal{A} \Pi^*.
+\]
+
+Operator-form expression for the property covariance:
+\begin{equation}\label{eq:dup_cov_operator}
+\boxed{
+  \mathbf{C}_{\propertyspace}^{\mathbf{\tilde d}} = \Tau\,\Pi^* \left( \Pi\,G^*\,\mathbf{C}_{\dataspace}^{-1}\,G\,\Pi^* + (\Pi\,\mathcal{A}\,\Pi^*)^2 \right)^{-1} \Pi\,\Tau^*.
+}
+\end{equation}
+
+Matrix-form expression:
+\begin{equation}\label{eq:dup_cov_mat}
+\boxed{
+  \mathbf{C}_{\propertyspace}^{\mathbf{\tilde d}} = \mathbf{T} \left( \mathbf{G}^{\top} \mathbf{C}_{\dataspace}^{-1} \mathbf{G} + \mathbf{K}_{\mathcal{A}} \mathbf{M}^{-1} \mathbf{K}_{\mathcal{A}} \right)^{-1} \mathbf{T}^{\top},
+}
+\end{equation}
+where:
+\begin{itemize}
+  \item \([\mathbf{M}]_{ij} = \langle \phi_i, \phi_j \rangle_{\modelspace}\): mass matrix
+  \item \([\mathbf{K}_{\mathcal{A}}]_{ij} = \langle \phi_i, \mathcal{A}(\phi_j) \rangle_{\modelspace}\): stiffness matrix
+  \item \(\mathbf{A} = \mathbf{M}^{-1} \mathbf{K}_{\mathcal{A}}\): discrete precision operator
+  \item \([\mathbf{G}]_{ij} = \langle K_i, \phi_j \rangle_{\modelspace}\): forward model
+  \item \([\mathbf{T}]_{ij} = \langle T_i, \phi_j \rangle_{\modelspace}\): property map
+\end{itemize}
+
+Alternatively, if we don't know the root-precision operator, but only the precision operator, then we have
+\begin{equation}
+    \mathbf{C}_0^{-1} = \bm{\mathcal{L}}, \quad \bm{\mathcal{L}} = \Pi \mathcal{L} \Pi^* = \mathbf{M}^{-1} \mathbf{K}_{\mathcal{L}}, \quad [\mathbf{K}_{\mathcal{L}}]_{ij} = \expval{\phi_i, \mathcal{L}(\phi_j)}_{\modelspace}
+\end{equation}
+which eventualy gives
+\begin{equation}\label{eq:dup_cov_operator_L}
+\boxed{
+  \mathbf{C}_{\propertyspace}^{\mathbf{\tilde d}} = \Tau\,\Pi^* \left( \Pi\,G^*\,\mathbf{C}_{\dataspace}^{-1}\,G\,\Pi^* + \Pi\,\mathcal{L}\,\Pi^* \right)^{-1} \Pi\,\Tau^*.
+}
+\end{equation}
+
+Matrix-form expression:
+\begin{equation}\label{eq:dup_cov_mat_L}
+\boxed{
+  \mathbf{C}_{\propertyspace}^{\mathbf{\tilde d}} = \mathbf{T} \left( \mathbf{G}^{\top} \mathbf{C}_{\dataspace}^{-1} \mathbf{G} + \mathbf{K}_{\mathcal{L}} \right)^{-1} \mathbf{T}^{\top},
+}
+\end{equation}
+
+\textit{Computational effort:}
+The mass and stiffness matrices require \(\mathcal{O}(N^2)\) evaluations (or fewer with symmetry). Applying \(\mathcal{A}\) may be expensive depending on its form. Once all matrices are assembled, posterior inference involves solving systems of dimension \(N \times N\) and computing matrix products—tasks well-supported by standard numerical libraries.
+
+
+
+\vspace{1em}
+\noindent
+\noindent
+\textbf{2. Update -- Discretize -- Push}
+
+In this strategy, we first compute the full posterior distribution in the continuous model space \(\modelspace\), and then project the posterior mean and covariance onto a finite-dimensional subspace using a basis \(\{ \phi_i \}_{i=1}^N\). Finally, the discretized posterior is pushed through the finite-dimensional property map \(\mathbf{T} = \Tau \Pi^*\).
+
+The relevant quantities are:
+\begin{gather}
+  \bm{\tilde{\alpha}} = \Pi(\tilde{m}),
+  \qquad
+  \mathbf{C}_{\Vspace} = \Pi\,C_{\modelspace}\,\Pi^*, \\
+  \tilde{\mathbf{p}}^d = \mathbf{T}(\bm{\tilde{\alpha}}),
+  \qquad
+  \mathbf{C}_{\propertyspace}^{\mathbf{\tilde d}} = \mathbf{T}\,\mathbf{C}_{\Vspace}\,\mathbf{T}^*.
+\end{gather}
+
+Expanding the covariance yields:
+\begin{equation}\label{eq:udp_cov_operator}
+\boxed{
+  \mathbf{C}_{\propertyspace}^{\mathbf{\tilde d}} = \Tau\,\Pi^* \Pi \left(G^*\,\mathbf{C}_{\dataspace}^{-1}\,G + C_0^{-1}\right)^{-1} \Pi^* \Pi\,\Tau^*.
+}
+\end{equation}
+
+\vspace{1em}
+\textit{Implementation Details.}
+To implement this method, the following components must be computed:
+
+\begin{itemize}
+  \item \textbf{Mass matrix:} \([\mathbf{M}]_{ij} = \langle \phi_i, \phi_j \rangle_{\modelspace}\)
+  \item \textbf{Property map matrix:} \([\mathbf{T}]_{ij} = \langle T_i, \phi_j \rangle_{\modelspace}\), with \(\mathbf{T}^* = \mathbf{M}^{-1} \mathbf{T}^{\top}\)
+  \item \textbf{Covariance matrix:} \([\mathbf{K}_{\Vspace}]_{ij} = \langle \phi_i, C_{\modelspace}(\phi_j) \rangle_{\modelspace}\), and then \(\mathbf{C}_{\Vspace} = \mathbf{M}^{-1} \mathbf{K}_{\Vspace}\)
+\end{itemize}
+
+To construct \(\mathbf{K}_{\Vspace}\), we must apply \(C_{\modelspace}\) to each basis function \(\phi_j\), which amounts to solving:
+\begin{equation}
+    G^* \mathbf{C}_{\dataspace}^{-1} G (f_j) + \mathcal{L}(f_j) = \phi_j,
+    \label{eq:C_inverse}
+\end{equation}
+for \(f_j \in \modelspace\). This equation defines the action of \(C_{\modelspace}\) as the inverse of the left-hand side operator.
+
+We approximate each \(f_j\) in the basis:
+\[
+  f_j \approx \sum_i f^i_j \phi_i,
+\]
+and substitute into \eqref{eq:C_inverse}. Taking inner products against the model space basis, we obtain the matrix equation:
+\begin{equation}
+  \mathbf{G}^{\top} \mathbf{C}_{\dataspace}^{-1} \mathbf{G} \mathbf{F} + \mathbf{K}_\mathcal{L} \mathbf{F} = \mathbf{M},
+\end{equation}
+where:
+\begin{gather}
+  [\mathbf{F}]_{ij} = f^i_j, \\
+  [\mathbf{K}_\mathcal{L}]_{ij} = \langle \phi_i, \mathcal{L}(\phi_j) \rangle_{\modelspace}.
+\end{gather}
+
+Solving for \(\mathbf{F}\) gives:
+\begin{equation}
+  \mathbf{F} = \left(\mathbf{M}^{-1} \mathbf{G}^{\top} \mathbf{C}^{-1}_{\dataspace} \mathbf{G} + \mathbf{M}^{-1} \mathbf{K}_\mathcal{L} \right)^{-1},
+\end{equation}
+Now note that
+\begin{gather}
+    [\mathbf{K}_{\Vspace}]_{ij} = \langle \phi_i, C_{\modelspace}(\phi_j) \rangle_{\modelspace} = \expval{\phi_i, f_j} = \sum_l \expval{\phi_i, \phi_l} f^l_j
+\end{gather}
+which is equivalent to
+\begin{equation}
+    \mathbf{K}_{\Vspace} = \mathbf{M} \mathbf{F},
+\end{equation}
+and thus:
+\[
+  \mathbf{C}_{\Vspace} = \mathbf{M}^{-1} \mathbf{K}_{\Vspace} = \mathbf{F}.
+\]
+
+The final covariance in the property space becomes:
+\begin{equation}\label{eq:udp_cov_mat}
+\boxed{
+  \mathbf{C}_{\propertyspace}^{\mathbf{\tilde d}} = \mathbf{T}\left(\mathbf{G}^{\top} \mathbf{C}^{-1}_{\dataspace} \mathbf{G} + \mathbf{K}_\mathcal{L} \right)^{-1} \mathbf{T}^{\top}.
+}
+\end{equation}
+
+\vspace{1em}
+\textit{Comparison to Method 1.}
+This expression is the same as the covariance formula from Method 1.
+
+\vspace{1em}
+\noindent
+\noindent
+\textbf{3. Update -- Push -- Discretize (or not)}
+
+In this approach, both the Bayesian update and the pushforward operations are performed entirely in the continuous setting:
+\begin{equation}
+  \tilde{\mathbf{p}} = \Tau(\tilde{m}),
+  \qquad
+  \mathbf{C}_{\propertyspace} = \Tau\,C_{\modelspace}\,\Tau^*.
+\end{equation}
+
+Since the property space \(\propertyspace\) is already finite-dimensional, no explicit discretization appears necessary. However, to compute or represent \(\mathbf{C}_{\propertyspace}\), we must evaluate it in a specific basis. Let \(\{\bm{\xi}_i\}\) denote a basis for \(\propertyspace\). Then:
+\[
+    [\mathbf{C}_{\propertyspace}]_{ij}
+    = \langle \bm{\xi}_i, C_{\propertyspace}(\bm{\xi}_j) \rangle_{\propertyspace}
+    = \langle \bm{\xi}_i, \Tau\,C_{\modelspace}\,\Tau^*(\bm{\xi}_j) \rangle_{\propertyspace}.
+\]
+
+By adjointness:
+\[
+    [\mathbf{C}_{\propertyspace}]_{ij}
+    = \langle \Tau^*(\bm{\xi}_i), C_{\modelspace}(\Tau^*(\bm{\xi}_j)) \rangle_{\modelspace}.
+\]
+
+Defining \(T_j := \Tau^*(\bm{\xi}_j)\), this becomes:
+\[
+    [\mathbf{C}_{\propertyspace}]_{ij}
+    = \langle T_i, C_{\modelspace}(T_j) \rangle_{\modelspace}.
+\]
+
+To compute this, define:
+\[
+    r_j := C_{\modelspace}(T_j)
+    = \left(G^* \mathbf{C}_{\dataspace}^{-1} G + C_0^{-1} \right)^{-1}(T_j).
+\]
+
+Thus, we must solve:
+\begin{equation}
+    \left(G^* \mathbf{C}_{\dataspace}^{-1} G + C_0^{-1}\right)(r_j) = T_j,
+\end{equation}
+for each \(r_j \in \modelspace\). We approximate:
+\[
+    r_j \approx \sum_i r^i_j \phi_i,
+\]
+and substitute into the equation. Taking inner products with the basis functions \(\phi_k\), we obtain the matrix equation:
+\begin{equation}
+    \mathbf{G}^{\top} \mathbf{C}^{-1}_{\dataspace} \mathbf{G} \mathbf{R} + \mathbf{K}_\mathcal{L} \mathbf{R} = \mathbf{T}^{\top},
+\end{equation}
+where:
+\[
+    [\mathbf{R}]_{ij} = r^i_j,
+    \qquad
+    [\mathbf{K}_\mathcal{L}]_{ij} = \langle \phi_i, \mathcal{L}(\phi_j) \rangle_{\modelspace}.
+\]
+
+Now, observe that:
+\[
+    [\mathbf{C}_{\propertyspace}]_{ij}
+    = \langle T_i, r_j \rangle_{\modelspace}
+    = \sum_l \langle T_i, \phi_l \rangle_{\modelspace} \, r^l_j.
+\]
+
+In matrix form, this reads:
+\[
+    \mathbf{C}_{\propertyspace} = \mathbf{T} \mathbf{R},
+\]
+where \(\mathbf{T}\) contains the inner products \(\langle T_i, \phi_j \rangle_{\modelspace}\). Since we already have an expression for \(\mathbf{R}\), we substitute:
+\begin{equation}
+    \mathbf{R} = \left(\mathbf{G}^{\top} \mathbf{C}^{-1}_{\dataspace} \mathbf{G} + \mathbf{K}_2 \right)^{-1} \mathbf{T}^{\top},
+\end{equation}
+yielding the final expression:
+\begin{equation}\label{eq:upd_cov_mat}
+\boxed{
+    \mathbf{C}_{\propertyspace}
+    = \mathbf{T} \left(\mathbf{G}^{\top} \mathbf{C}^{-1}_{\dataspace} \mathbf{G} + \mathbf{K}_2 \right)^{-1} \mathbf{T}^{\top}.
+}
+\end{equation}
+
+\vspace{1em}
+\noindent
+\textbf{Summary:} These formulations differ in where discretization is introduced, but the final result is the same.
+
+
+\section{Discretisation-induced leakage in linear inverse problems}
+\label{sec:leakage}
+
+Let \(\mathcal{M}\) be a separable Hilbert space (the \emph{model space}) equipped with inner product \(\langle\cdot,\cdot\rangle_{\mathcal M}\), and let \(\dataspace\cong\mathbb R^{N_d}\) be the finite-dimensional data space with its Euclidean inner product.  Consider a bounded linear forward operator
+\[
+    G:\mathcal M\to\dataspace,
+\]
+and denote its adjoint by \(G^*:\dataspace\to\mathcal M\).  Set
+\[
+    \mathcal R := \operatorname{ran}(G^*),\qquad \mathcal N := \ker(G).
+\]
+When convenient we use the orthogonal decomposition \(\mathcal M=\mathcal R\oplus\mathcal N\).
+
+\subsection{Continuous Moore--Penrose inverse}
+Assume \(GG^*: \dataspace\to\dataspace\) is invertible (equivalently \(\operatorname{rank}(G)=N_d\)).  The continuous Moore--Penrose (left) inverse is
+\[
+    G^+ := G^*(GG^*)^{-1} : \dataspace\to\mathcal M,
+\]
+and for any \(d\in\dataspace\) the least-norm solution to \(Gm=d\) is \(G^+d\).  Consequently
+\[
+    \operatorname{ran}(G^+) = \mathcal R,
+\]
+and for any data measure \(\mu_{\dataspace}\) the pushforward \((G^+)_{\#}\mu_{\dataspace}\) is a measure supported on \(\mathcal R\).  In particular the continuous MP reconstruction assigns zero variance to \(\mathcal N\): the data carry no information about null\((G)\).
+
+\subsection{Discretise–then–invert}
+Let \(\modelspace_N\subset\mathcal M\) be a finite-dimensional subspace with synthesis (embedding) \(\Pi^*: \mathbb V_N\to\mathcal M\) and analysis \(\Pi:\mathcal M\to\mathbb V_N\) (so \(\Pi^*\) reconstructs functions from coefficient vectors and \(\Pi\) returns coefficients).  Define the discretised forward operator
+\[
+    \mathbf G := G\Pi^*:\mathbb V_N\to\dataspace,
+\]
+represented as an \(N_d\times N\) matrix in chosen bases.  Denote the pseudo/left inverse of \(\mathbf G\) by \(\mathbf G^+\).  In the full-row-rank case \(\mathbf G\mathbf G^*\) is invertible and
+\[
+    \mathbf G^+ = \mathbf G^*(\mathbf G\mathbf G^*)^{-1}.
+\]
+
+Pushing the data measure forward through the discrete inverse yields a coefficient-space measure
+\[
+    \mu_{\mathbb V_N} \;=\; (\mathbf G^+)_{\#}\mu_{\dataspace}
+\]
+on \(\mathbb V_N\).  Lifting this back to the continuous model space is done via \(\Pi^*\):
+\[
+    \mu_{\mathcal M} \;=\; (\Pi^*)_{\#}\mu_{\mathbb V_N}
+    \;=\; (\Pi^*\mathbf G^+)_{\#}\mu_{\dataspace}.
+\]
+
+\subsection{Support of the lifted discrete posterior and the leakage identity}
+To characterise the support of \(\mu_{\mathcal M}\) observe the algebraic identities (valid under the usual adjoint/representation conventions)
+\[
+    \mathbf G = G\Pi^*,\qquad \mathbf G^* = \Pi G^*,
+\]
+and hence
+\[
+    \Pi^*\mathbf G^* = \Pi^*(\Pi G^*) = (\Pi^*\Pi) G^* =: P_N G^*,
+\]
+where \(P_N=\Pi^*\Pi\) is the (Galerkin) projector from \(\mathcal M\) onto \(V_N\subset\mathcal M\).
+
+If \(\mathbf G\mathbf G^*\) is invertible, \(\operatorname{ran}(\mathbf G^+)=\operatorname{ran}(\mathbf G^*)\), and therefore the support of the lifted measure is
+\[
+    \operatorname{supp}(\mu_{\mathcal M}) \;=\; \operatorname{ran}(\Pi^*\mathbf G^+)
+    \;=\; \operatorname{ran}(\Pi^*\mathbf G^*)
+    \;=\; \operatorname{ran}(P_N G^*)
+    \;=\; P_N\big(\operatorname{ran}(G^*)\big).
+\]
+Thus the discretise-then-invert posterior is supported on the \emph{projection} of the continuous data-informed subspace \(\mathcal R=\operatorname{ran}(G^*)\) onto the discretisation space \(\modelspace_N\).
+
+
+\appendix
+
+\section{More on Discretizing the Prior Covariance Operator}\label{appendix:prior_discretizatoin}
+
+In this section, we explain the motivation behind the definition of the discretized operator
+\[
+\mathbf{A} : \Vspace \to \Vspace
+\]
+given in equation~\eqref{eq:cov_inner_product_match}. Our goal is to construct a matrix \(\mathbf{A}\) that accurately represents the action of the continuous operator \(\mathcal{A} : \modelspace \to \modelspace\) in the discrete coefficient space \(\Vspace\).
+
+\subsection*{Definition of \(\mathbf{A}\)}
+
+We want the operator \(\mathbf{A}\) to be defined on \(\Vspace\) which is a finite dimensional space, but to mimic the operator \(\mathcal{A}\) which is defined on an infinite dimensional space. This is not possible, however we could
+
+To ensure that the discretized operator \(\mathbf{A}\colon \Vspace \to \Vspace\) faithfully captures the action of the continuous operator \(\mathcal{A}\) on the finite-dimensional subspace \(\modelspace_N\), we define \(\mathbf{A}\) so that the following diagram commutes for all \(m \in \modelspace_N\):
+\begin{equation}
+\boxed{
+\mathbf{A}(\Pi(m)) = \Pi(\mathcal{A}(m)).
+}
+\label{eq:condition_for_A}
+\end{equation}
+Here, \(m \in \modelspace_N\) admits an exact coefficient representation \(\bm{\alpha} = \Pi(m)\) in the coefficient space \(\Vspace\). The right-hand side, \(\Pi(\mathcal{A}(m))\), gives the coefficient representation of \(\mathcal{A}(m)\), which may be only an approximation if \(\mathcal{A}(m) \notin \modelspace_N\). We define \(\mathbf{A}\) so that it maps the coefficient representation of \(m\) to that of \(\mathcal{A}(m)\) (or its approximate representation). In this way, \(\mathbf{A}\) serves as the discrete analog of \(\mathcal{A}\) on \(\Vspace\), ensuring consistency between the continuous and discrete formulations.
+
+Since \(\modelspace_N = \mathrm{span}\{\phi_1, \dots, \phi_N\}\), it suffices to enforce this condition on the basis elements \(\{\phi_k\}\). That is, we require:
+\begin{equation}
+\boxed{
+\mathbf{A}(\Pi(\phi_k)) = \Pi(\mathcal{A}(\phi_k)), \quad \forall k = 1, \dots, N.
+}
+\label{eq:condition_for_A_2}
+\end{equation}
+
+This equation uniquely defines the matrix \(\mathbf{A}\), since the vectors \(\Pi(\phi_k)\) form a basis for \(\Vspace\).
+
+\subsection*{Deriving the Inner Product Identity}
+
+From this definition, we can derive the matrix entries of \(\mathbf{A}\) via inner products. For any \(i,j \in \{1,\dots,N\}\), we consider:
+\[
+[\mathbf{K}]_{ij} := \langle \phi_i, \mathcal{A}(\phi_j) \rangle_{\modelspace},
+\]
+and define the stiffness matrix \(\mathbf{K} \in \mathbb{R}^{N \times N}\) accordingly. Then, using the fact that \(\Pi(\phi_k) = I_{\Vspace}\), we recover the discretization:
+\[
+\boxed{
+\mathbf{A} = \mathbf{M}^{-1} \mathbf{K},
+}
+\]
+which satisfies the identity:
+\[
+\boxed{
+\langle \phi_i, \mathcal{A}(\phi_j) \rangle_{\modelspace} = \langle \mathbf{e}_i, \mathbf{A} \mathbf{e}_j \rangle_{\Vspace} = \mathbf{e}_i^\top \mathbf{M} \mathbf{A} \mathbf{e}_j.
+}
+\]
+
+This is precisely equation~\eqref{eq:cov_inner_product_match}, confirming that the discretized operator \(\mathbf{A}\) preserves the action of \(\mathcal{A}\) under the mapping defined by \(\Pi\) and \(\mathbf{M}^{-1}\).
+
+\subsection*{Another perspective}
+
+We can define the discretized operator \(\mathcal{A}_N \colon \modelspace_N \to \modelspace_N\) as
+\begin{equation}
+    \mathcal{A}_N = P'_N \mathcal{A} (P'_N)^*,
+\end{equation}
+which represents the projection of the continuous operator \(\mathcal{A}\) onto the finite-dimensional subspace \(\modelspace_N\).
+
+Recalling that
+\[
+    P'_N = \pi \Pi,
+\]
+we substitute to obtain
+\[
+    \mathcal{A}_N = \pi\Pi\, \mathcal{A} \, \Pi^* \pi^*.
+\]
+
+Here, the operator \(\pi^*\) maps a function \(m \in \modelspace_N\) to its \(\Vspace\) representation \(\bm{\alpha}\), while \(\pi\) reconstructs a function in \(\modelspace_N\) from its coefficient vector \(\bm{\alpha}\). This motivates the identification
+\[
+\boxed{
+    \mathbf{A} = \Pi\, \mathcal{A}\, \Pi^*.
+    }
+\]
+
+This representation ensures that \(\mathbf{A}\) accurately captures the action of \(\mathcal{A}\) within the finite-dimensional subspace \(\modelspace_N\).
+
+
+\bibliographystyle{plainnat}  % or abbrvnat, unsrtnat, etc.
+\bibliography{bibliography}     % replace 'references' with your .bib filename
+
+\end{document}
