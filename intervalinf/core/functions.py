@@ -810,7 +810,9 @@ class Function:
                 def zero_callable(x):
                     return np.zeros_like(np.asarray(x), dtype=float)
 
-                return Function(result_context, evaluate_callable=zero_callable)
+                return Function(
+                    result_context, evaluate_callable=zero_callable, support=[]
+                )
 
         return self._binary_op(
             other,
@@ -888,11 +890,18 @@ class Function:
             )
             raise ValueError(msg)
 
+        new_support = None
+        if self.support is not None:
+            restricted_domain_support = [(rest_domain.a, rest_domain.b)]
+            new_support = self._intersect_supports(
+                self.support, restricted_domain_support
+            )
+
         return Function(
             restricted_space,
             evaluate_callable=self.evaluate_callable,
             name=f"{self.name}_restricted" if self.name else None,
-            support=None,
+            support=new_support,
         )
 
     def __repr__(self) -> str:

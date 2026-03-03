@@ -127,6 +127,24 @@ class TestFunctionArithmetic:
         x = np.array([0, 0.5, 1])
         np.testing.assert_allclose(h(x), -x)
 
+    def test_mul_disjoint_support_gives_zero_with_empty_support(self, space):
+        f = Function(
+            space,
+            evaluate_callable=lambda x: np.ones_like(x),
+            support=(0.1, 0.2),
+        )
+        g = Function(
+            space,
+            evaluate_callable=lambda x: 3.0 * np.ones_like(x),
+            support=(0.8, 0.9),
+        )
+
+        h = f * g
+        assert h.support == []
+        assert h.has_compact_support
+        x = np.array([0.0, 0.15, 0.5, 0.85, 1.0])
+        np.testing.assert_allclose(h(x), 0.0)
+
 
 class TestFunctionSupport:
     """Test Function with compact support."""
@@ -167,6 +185,58 @@ class TestFunctionSupport:
         result = f(x)
         expected = np.array([0.0, 1.0, 1.0, 1.0, 0.0])
         np.testing.assert_allclose(result, expected)
+
+
+class TestFunctionRestrict:
+    """Test Function.restrict() behavior, especially with compact support."""
+
+    def test_restrict_intersects_support_with_domain(self):
+        dom = IntervalDomain(0.0, 1.0)
+        space = MockSpace(dom)
+        restricted_space = MockSpace(IntervalDomain(0.0, 0.5))
+
+        f = Function(
+            space,
+            evaluate_callable=lambda x: np.ones_like(x),
+            support=(0.25, 0.75),
+        )
+        fr = f.restrict(restricted_space)
+
+        assert fr.support == [(0.25, 0.5)]
+        assert fr.has_compact_support
+        assert fr(0.1) == 0.0
+        assert fr(0.3) == 1.0
+
+        with pytest.raises(ValueError, match="not in domain"):
+            fr(0.6)
+
+    def test_restrict_can_yield_empty_support(self):
+        dom = IntervalDomain(0.0, 1.0)
+        space = MockSpace(dom)
+        restricted_space = MockSpace(IntervalDomain(0.0, 0.5))
+
+        f = Function(
+            space,
+            evaluate_callable=lambda x: 2.0 * np.ones_like(x),
+            support=(0.75, 0.9),
+        )
+        fr = f.restrict(restricted_space)
+
+        assert fr.support == []
+        np.testing.assert_allclose(fr(np.array([0.1, 0.4])), 0.0)
+
+    def test_restrict_preserves_no_compact_support(self):
+        dom = IntervalDomain(0.0, 1.0)
+        space = MockSpace(dom)
+        restricted_space = MockSpace(IntervalDomain(0.0, 0.5))
+
+        f = Function(space, evaluate_callable=lambda x: x + 1.0)
+        fr = f.restrict(restricted_space)
+
+        assert fr.support is None
+        assert not fr.has_compact_support
+        x = np.array([0.1, 0.4])
+        np.testing.assert_allclose(fr(x), x + 1.0)
 
 
 class TestFunctionValidation:

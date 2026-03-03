@@ -201,8 +201,11 @@ Supported `bc_type` values:
 | `__call__(x)` | delegates to `evaluate` | Callable interface |
 | `attach_to_space(space, copy=True)` | `(HilbertSpace, bool) → Function` | Create space-attached copy |
 | `detach(copy=True)` | `(bool) → Function` | Create domain-only copy (requires callable, not coefficients) |
+| `restrict(restricted_space)` | `→ Function` | Restrict to a subdomain; if compact support is set, it is intersected with the restricted domain |
 | `integrate(weight, method, n_points, vectorized)` | `→ float` | $\int f(x) w(x)\,dx$ |
 | Arithmetic: `+`, `-`, `*`, `/`, `__neg__`, `__abs__` | pointwise, returns new `Function` | Standard function arithmetic |
+
+**Note:** For `*`, if both operands have compact support and their supports are disjoint, the product is an identically-zero `Function` with `support=[]`.
 
 **Mathematical meaning:** Represents an element of $L^2([a,b])$ or $H^s([a,b])$; evaluation at a point is the function value $f(x)$.
 
