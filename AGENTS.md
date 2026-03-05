@@ -52,6 +52,13 @@ All files matching `docs/agent-docs/active-plans/*-reference.md` are **condensed
 - Convex analysis, support functions, inversion algorithms
 - **intervalinf provides concrete spaces for pygeoinf examples**
 
+## Package Quick References
+All files matching `docs/agent-docs/references/*-reference.md` are **condensed reference documents** that agents **must read first** before exploring individual source files. Currently: `intervalinf-reference.md`
+
+**Read rule:** Before exploring any source files, read every `*-reference.md` in `docs/agent-docs/references/`.
+
+**Update rule:** After changes, **update all `*-reference.md` files** to reflect additions, removals, or modifications. Stale references are actively harmful.
+
 ## Commit Message Convention
 Follow the workspace-level convention in `../COMMIT_CONVENTION.md`.
 Always include `Plan:` and `Phase:` fields in feature/fix commits.
