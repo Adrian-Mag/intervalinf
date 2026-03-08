@@ -1,0 +1,254 @@
+# Plan: SOLAOperator speedup on SOLAOperator_speedup branch
+
+Speed up `intervalinf.operators.SOLAOperator` while preserving its continuous-first
+API semantics. The project will begin with a detailed implementation audit and a
+thorough benchmarking baseline, then proceed through progressively more aggressive
+optimizations with correctness, robustness, and post-change performance comparisons
+baked into every phase.
+
+**Context:**
+- Work is taking place on local branch `SOLAOperator_speedup`, created from the local
+  `convex_analysis` branch in the nested `intervalinf` git repository.
+- `SOLAOperator` is currently a continuous operator in user-facing semantics: it maps
+  functions on an interval to Euclidean data by numerically integrating against kernel
+  functions, rather than by exposing a fixed matrix discretization.
+- In practice, repeated optimization workloads such as PLI and DLI call `SOLAOperator`
+  many times with unchanged kernels and unchanged integration settings, so the current
+  per-call integration overhead becomes the dominant cost.
+- The current implementation performs one integration per kernel, rebuilding product
+  callables and `Function` wrappers repeatedly inside Python loops.
+- Dedicated functional tests for `SOLAOperator` are currently sparse, so a correctness
+  and robustness baseline must be established before optimization work starts.
+- Benchmark artifacts for this project should remain in `rough_work/`.
+- Any accelerated fixed-grid path should be automatic for reusable fixed-grid methods,
+  not opt-in.
+- The mismatch between `IntegrationConfig(method="quad")` and the domain-level
+  integration naming/behavior is in scope and should be cleaned up as part of this
+  work.
+
+---
+
+## Phase 1: Detailed implementation and dependency audit
+
+**Status:** ✅ Complete (2026-03-08)
+
+**Objective:** Build an exact understanding of the current `SOLAOperator`
+implementation, call graph, dependencies, invariants, and numerical semantics before
+any optimization is attempted.
+
+**Files to inspect:**
+- `intervalinf/intervalinf/operators/sola.py`
+- `intervalinf/intervalinf/core/functions.py`
+- `intervalinf/intervalinf/core/domain.py`
+- `intervalinf/intervalinf/spaces/lebesgue.py`
+- `intervalinf/intervalinf/spaces/forms.py`
+- `intervalinf/intervalinf/providers/base.py`
+- relevant provider implementations used in practice:
+  - `intervalinf/intervalinf/providers/functions/data.py`
+  - `intervalinf/intervalinf/providers/functions/smooth.py`
+- heavy call sites in downstream workflows:
+  - `pygeoinf/pygeoinf/backus_gilbert.py`
+  - current PLI/DLI demos using SOLA-based forward and property operators
+
+**Questions to answer in this phase:**
+- What exact work is done in forward application, dual mapping, and adjoint recovery?
+- Which parts of the pipeline are generic and which parts are effectively fixed-grid already?
+- Where do compact support and domain restrictions exist today, and where are they not propagated?
+- Which invariants must be preserved to keep the operator continuous-first in semantics?
+- What kernel/provider cases must remain supported without behavior changes?
+- What does the current integration-config API promise versus what the implementation actually supports?
+
+**Deliverables:**
+- A written architectural summary inside the plan change log and follow-up notes.
+- A list of invariants to preserve during optimization.
+- A list of benchmark surfaces and risk areas discovered during inspection.
+
+**Outcome:**
+- Completed a code-path audit spanning `SOLAOperator`, `Function`, `IntervalDomain`,
+  `LinearFormKernel`, relevant providers, direct-sum composition, and downstream
+  `DualMasterCostFunction` usage.
+- Confirmed the dominant repeated costs are per-kernel forward integrations and repeated
+  evaluation of reconstructed adjoint functions inside downstream norms/integrals.
+- Identified dedicated SOLA test coverage as a major gap to close before optimization.
+- Identified support-propagation and integration-method inconsistencies that should be
+  addressed before or alongside acceleration work.
+- Wrote the audit note:
+  `intervalinf/docs/agent-docs/references/sola-operator-phase-1-audit.md`.
+
+---
+
+## Phase 2: Baseline correctness, robustness, and benchmark suite
+
+**Status:** ⬜ Not started
+
+**Objective:** Establish a rigorous pre-change baseline so that later speedups can be
+compared against known behavior, numerical accuracy, and runtime characteristics.
+
+**Files to create/modify:**
+- New: `intervalinf/tests/operators/test_sola.py`
+- New or extended baseline benchmark(s) in `intervalinf/rough_work/`
+- Possibly extend: `intervalinf/rough_work/benchmark_dli_solvers.py`
+
+**Tests to write:**
+- Analytic forward-integral tests on simple domains and simple kernels.
+- Random regression tests comparing multiple operator construction modes:
+  direct function list, callable list, and `IndexedFunctionProvider`.
+- Adjoint consistency tests checking
+  `⟨G(f), y⟩_D ≈ ⟨f, G* y⟩_M` under explicit tolerances.
+- Compact-support tests, including disjoint support, partial overlap, and empty support.
+- Integration-method tests covering the current usable methods and the planned cleanup of
+  the `quad` naming/behavior.
+- Robustness tests for vectorized and non-vectorized callables.
+
+**Benchmarking requirements:**
+- Measure isolated operator costs:
+  - `G(f)`
+  - `G.adjoint(y)`
+  - evaluation/integration of the function returned by the adjoint path
+  - `DualMasterCostFunction.value_and_subgradient(...)` as a realistic downstream hotspot
+- Measure scaling across workload axes:
+  - `N_d` and `N_p`
+  - model-space basis dimension
+  - integration method
+  - `n_points`
+  - kernel family (`NormalModesProvider`, `BumpFunctionProvider`, data-driven kernels if applicable)
+  - function representation (coefficient-based versus callable-based)
+- Record accuracy against a higher-accuracy reference configuration.
+- Record robustness behavior for edge cases and fallback paths.
+
+**Benchmark outputs to preserve:**
+- wall-clock runtime tables
+- relative and absolute output errors
+- adjoint consistency residuals
+- notes on failure modes or cases where the current implementation is unexpectedly slow or fragile
+
+**Outcome:** A trustworthy baseline that later phases can compare against quantitatively.
+
+---
+
+## Phase 3: Integration API cleanup and low-risk semantic fixes
+
+**Status:** ⬜ Not started
+
+**Objective:** Clean up inconsistencies and remove low-risk inefficiencies before adding
+more ambitious acceleration paths.
+
+**Primary scope:**
+- Resolve the `IntegrationConfig(method="quad")` versus domain-level integration naming mismatch.
+- Decide and implement the correct behavior for fixed-grid versus adaptive methods.
+- Clarify and codify which methods support automatic batched acceleration.
+- Improve obvious avoidable overhead where semantics are unambiguous.
+
+**Likely modifications:**
+- `intervalinf/intervalinf/core/config.py`
+- `intervalinf/intervalinf/core/domain.py`
+- `intervalinf/intervalinf/operators/sola.py`
+- relevant tests added in Phase 2
+
+**Validation:**
+- No behavior regressions in baseline tests.
+- Updated benchmarks still reproduce the Phase 2 baseline within tolerance, except where
+  the cleanup intentionally fixes broken or inconsistent behavior.
+
+---
+
+## Phase 4: Automatic batched fixed-grid forward path
+
+**Status:** ⬜ Not started
+
+**Objective:** Introduce an automatic accelerated path for reusable fixed-grid integration
+methods such as `simpson` and `trapz`, while preserving a generic fallback path for cases
+that do not fit the accelerated assumptions.
+
+**Key design requirement:**
+- The accelerated path must be automatic whenever the operator is using a fixed-grid
+  integration mode whose mesh/settings are stable and reusable.
+- The public semantics must still be “continuous operator evaluated numerically”, not
+  “user-visible matrix discretization”.
+
+**Implementation ideas to evaluate and, if justified, implement:**
+- Build the quadrature mesh once per operator/configuration instead of per kernel.
+- Evaluate the input function once on the mesh instead of once per kernel.
+- Evaluate kernels on the shared mesh and integrate all products in a batched/vectorized way.
+- Keep exact fallback behavior for non-vectorized or unusual callables.
+
+**Files likely affected:**
+- `intervalinf/intervalinf/operators/sola.py`
+- possibly small helpers in `intervalinf/core/functions.py` if needed for safe vectorized evaluation
+
+**Validation:**
+- Forward results match the Phase 2 baseline under the same quadrature rule.
+- No regression in provider-backed cases or in non-vectorized fallback cases.
+- Benchmarks show isolated operator-level improvements before moving on to deeper caching.
+
+---
+
+## Phase 5: Reuse and caching for repeated workloads
+
+**Status:** ⬜ Not started
+
+**Objective:** Exploit the fact that iterative inverse problems reuse the same operator,
+kernels, and integration settings many times.
+
+**Optimization targets:**
+- Reuse fixed-grid mesh and weights across repeated applications.
+- Cache kernel evaluations on the shared mesh when safe.
+- Use support intersection to reduce the effective integration domain when compact support
+  information is available and mathematically safe to use.
+- Investigate whether a coefficient-space fast path is worthwhile for `Lebesgue` functions
+  represented directly in the active basis.
+
+**Important constraints:**
+- Cache design must not change semantics when providers are the kernel source of truth.
+- Cache invalidation/refresh rules must be explicit.
+- Memory growth must be measured and justified.
+- Any coefficient-based fast path must preserve fallback behavior for callable-based functions.
+
+**Benchmark focus:**
+- repeated `G(f)` calls with stable settings
+- repeated downstream calls inside PLI/DLI workflows
+- compact-support versus global-support kernel families
+
+---
+
+## Phase 6: End-to-end validation, documentation, and comparison report
+
+**Status:** ⬜ Not started
+
+**Objective:** Verify the final optimized implementation against the original baseline,
+document what improved and where, and update project references so future work has an
+accurate map of the operator.
+
+**Required work:**
+- Re-run the full benchmark matrix created in Phase 2.
+- Compare speed, accuracy, adjoint consistency, and robustness against the baseline.
+- Summarize where speedups are substantial, where they are modest, and where the fallback
+  path is still required.
+- Update living references to reflect the new implementation structure and semantics.
+
+**Files to update:**
+- `intervalinf/docs/agent-docs/references/living/intervalinf-reference.md`
+- any benchmark summary artifacts retained under `rough_work/`
+- plan change log and phase completion notes
+
+---
+
+## Success criteria
+
+- `SOLAOperator` remains continuous-first in public semantics.
+- A strong dedicated SOLA test suite exists where there was previously little direct coverage.
+- Fixed-grid repeated workloads are measurably faster than baseline.
+- Accuracy and adjoint consistency remain within agreed tolerances.
+- The integration-method API is internally consistent and documented.
+- Benchmarking is detailed enough to justify design choices and quantify gains.
+
+---
+
+## Change log
+
+| Date | Phase | Action |
+|------|-------|--------|
+| 2026-03-08 | Planning | Created `SOLAOperator_speedup` from local `convex_analysis` in the nested `intervalinf` repo |
+| 2026-03-08 | Planning | Completed initial research on `SOLAOperator`, function/integration internals, current test coverage, and DLI/PLI benchmark surfaces |
+| 2026-03-08 | Planning | Recorded project decisions: keep benchmark artifacts in `rough_work/`, make fixed-grid acceleration automatic, and include integration-method cleanup in scope |
+| 2026-03-08 | Phase 1 | Completed implementation and dependency audit; documented exact forward/adjoint call graph, preserved invariants, current inefficiencies, constraints, and recommended Phase 2 benchmark surfaces |
