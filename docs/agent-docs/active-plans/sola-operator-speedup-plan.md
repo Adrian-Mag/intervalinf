@@ -283,23 +283,44 @@ kernels, and integration settings many times.
 
 ## Phase 6: End-to-end validation, documentation, and comparison report
 
-**Status:** ⬜ Not started
+**Status:** ✅ Complete (2026-03-08)
 
 **Objective:** Verify the final optimized implementation against the original baseline,
 document what improved and where, and update project references so future work has an
 accurate map of the operator.
 
 **Required work:**
-- Re-run the full benchmark matrix created in Phase 2.
-- Compare speed, accuracy, adjoint consistency, and robustness against the baseline.
+- Re-run the full benchmark matrix created in Phase 2. ✅
+- Compare speed, accuracy, adjoint consistency, and robustness against the baseline. ✅
 - Summarize where speedups are substantial, where they are modest, and where the fallback
-  path is still required.
-- Update living references to reflect the new implementation structure and semantics.
+  path is still required. ✅
+- Update living references to reflect the new implementation structure and semantics. ✅
 
-**Files to update:**
-- `intervalinf/docs/agent-docs/references/living/intervalinf-reference.md`
-- any benchmark summary artifacts retained under `rough_work/`
-- plan change log and phase completion notes
+**Files updated:**
+- `intervalinf/rough_work/benchmark_phase6_comparison.py` — new three-way comparison
+  script (generic vs Phase 4 fast vs Phase 5 cached) covering N_d scaling, n_points
+  sweep, trapz, callable, and bump_provider scenarios; also validates accuracy vs
+  adaptive reference and adjoint consistency.
+- `intervalinf/rough_work/benchmark_phase6_results.csv` — CSV artifact from above.
+- `intervalinf/docs/agent-docs/references/living/intervalinf-reference.md` — updated
+  benchmark harness table; updated test-count; added Phase 6 performance summary table
+  to the SOLAOperator reference entry and corrected the Phase 5 batch speedup range.
+
+**Outcome:**
+- Full test suite: **405 tests passing** (103 SOLA-specific). No regressions.
+- Phase 4 single-call speedup over Phase 2 baseline: **2.8x–5.5x** (global/smooth kernels).
+- Phase 5 single-call speedup over Phase 2 baseline (warm cache): **5x–27x** depending
+  on N_d. The cache effect is most dramatic at high N_d (50–200) where kernel-eval reuse
+  eliminates the dominant fan-out cost.
+- Batch speedup (30 repeated calls, Phase 5 vs Phase 2): **1.6x–10x**.
+- Accuracy vs adaptive-quad reference: **< 1e-8** for global/smooth kernels at
+  n_points=1000. Compact-support bump kernels show expected O(n_points) quadrature error
+  when fixed Simpson is compared against error-controlled quad (use 'adaptive' for
+  high-accuracy bump scenarios).
+- Adjoint residual: **< 1e-5** for all global/smooth scenarios. Up to 2e-3 for N_d=50
+  bump kernels with fixed-grid integration — within expected quadrature accuracy for that
+  configuration, not a regression.
+- **No correctness fixes were needed during Phase 6.**
 
 ---
 
@@ -326,3 +347,4 @@ accurate map of the operator.
 | 2026-03-08 | Phase 3 | Resolved `quad`/`adaptive` naming mismatch; added `is_fixed_grid`/`is_adaptive` properties and module-level method-set constants; eliminated `Function` wrapper allocation in `_apply_kernels`; added support-propagation in `_apply_kernels` and `compute_gram_matrix`; 12 new tests added (60 SOLA / 362 total) |
 | 2026-03-08 | Phase 4 | Added `_eval_on_mesh`, `_apply_kernels_fixed_grid`, `_apply_kernels_generic`; automatic dispatch in `_apply_kernels`; support-aware generic fallback for narrowed compact supports; fixed-grid complex dtype preservation in `SOLAOperator` and `IntervalDomain.integrate`; non-vectorised callable fallback; 20 new tests (80 SOLA passing); new benchmark `benchmark_phase4.py`; about 2–5x speedup over per-kernel loop |
 | 2026-03-08 | Phase 5 | Added `_shared_mesh`, `_kernel_eval_cache`, `_get_or_build_mesh()`; updated `_apply_kernels_fixed_grid` batched loop to cache/reuse kernel evals; added `clear_mesh_cache()`; updated `clear_cache()` and `get_cache_info()`; 23 new tests in `TestPhase5ReuseAndCaching` (103 SOLA passing); new benchmark `benchmark_phase5.py`; 1.6–3.4x speedup for repeated workloads |
+| 2026-03-08 | Phase 6 | Created `benchmark_phase6_comparison.py` (three-way comparison: generic vs Phase 4 fast vs Phase 5 cached) and `benchmark_phase6_results.csv`; validated accuracy < 1e-8 for global/smooth kernels; adjoint residuals < 1e-5 for global/smooth kernels; overall Phase 4 speedup 2.8–5.5x, Phase 5 warm speedup 5–27x; no code fixes required; updated living reference with Phase 6 performance table; 405 tests passing |

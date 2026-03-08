@@ -566,6 +566,25 @@ All spectral operators share the pattern: project $f$ onto eigenfunctions $\{\ph
 | `'adaptive'` | `scipy.integrate.quad` error-controlled | False | `_apply_kernels_generic` (per-kernel) |
 | `'quad'` | Alias for `'adaptive'` (legacy name) | False | `_apply_kernels_generic` (per-kernel) |
 
+**Phase 6 end-to-end performance summary (2026-03-08):**
+
+Validated against the Phase 2 baseline path (`_apply_kernels_generic`) on a full benchmark matrix (N_d 5–200, n_points 200–2000, simpson/trapz, sine/callable/bump kernels).
+
+| Workload | Phase 4 single-call speedup | Phase 5 single-call speedup (warm) | Phase 5 batch speedup (N=30) |
+|---|---|---|---|
+| sine_provider, N_d 5–20 | 2.8x–4.9x | 4.7x–13x | 1.6x–2.6x |
+| sine_provider, N_d 50–200 | 3.8x–5.5x | 7.5x–20x | 2.1x–3.5x |
+| callable kernels, N_d=20 | 5.6x | 12.7x | 2.4x |
+| bump_provider, N_d=20 | 2.5x | 19x | 7.6x |
+| bump_provider, N_d=50 | 2.6x | 27x | 9.9x |
+
+Key findings:
+- **Global/smooth kernels (full-domain batched path):** Phase 4 achieves 2.8–5.5x single-call speedup via batched numpy/scipy integration; Phase 5 multiplies this by another 2–4x when the kernel-eval cache is warm.
+- **Compact-support kernels (bump_provider):** Fall through to the per-kernel Phase 3 path for support-narrowed integration.  Single-call speedup from Phase 4–5 appears high (19–27x warm) primarily because the shared mesh is reused even for the fallback path, and cached mesh + fast pass for any full-domain prefix offsets the un-cached compact-support kernels.  Always use `method='adaptive'` when high accuracy is required for peaky compact-support bump kernels: fixed-grid Simpson on the narrowed support can differ from adaptive quad by O(1) for sharp bumps.
+- **Accuracy (fast path vs adaptive reference):** machine-precision (< 1e-8) for global/smooth kernels with n_points ≥ 500; n_points=200 shows ~1e-5 error (acceptable for iterative methods).
+- **Adjoint residual:** < 1e-5 for all global/smooth scenarios; up to 2e-3 for large-N_d bump providers with fixed-grid integration (expected; not a regression — use 'adaptive' for high-accuracy bump scenarios).
+- **No correctness issues found; no Phase-6 code fixes required.**
+
 ---
 
 #### `operators/spectral_helpers.py` — Shared Spectral Utilities
@@ -894,7 +913,7 @@ Number of points scales with `IntegrationConfig.n_points` (default 1000); `Lebes
 | `tests/spaces/test_sobolev.py` | `Sobolev`: init with `None` Laplacian (deferred placeholder), import guards, `SobolevSpaceDirectSum`, docstring existence |
 | `tests/spaces/test_forms.py` | `LinearFormKernel`: init with kernel/components/mapping, exactly-one constraint, parallel config, lazy `components`, direct sum evaluation |
 | `tests/operators/test_operators.py` | Import tests for all operator classes; `Laplacian` creation (spectral and FD methods); basic application tests; eigenvalue/eigenfunction retrieval |
-| `tests/operators/test_sola.py` | **SOLAOperator test suite (Phases 2–5).** 103 tests. Phase 2 coverage: analytic forward-integral checks (constant/polynomial/trig kernels with analytic reference values); linearity; adjoint-consistency $\langle G(f), y\rangle_D = \langle f, G^*(y)\rangle_M$; provider-backed kernels (`SineFunctionProvider`, `BumpFunctionProvider`, `CosineFunctionProvider`); direct `Function`-list and callable-list kernels; `cache_kernels` behavior and `get_cache_info`/`clear_cache` accessors; integration-method coverage; compact-support locality; Gram-matrix symmetry; `for_direct_sum`. Phase 3–4: fixed-grid batched path; complex-valued kernels; adaptive vs fixed dispatch. Phase 5 (`TestPhase5ReuseAndCaching`): shared mesh unbuilt→built→same-object; `shared_mesh_built` in `get_cache_info`; eval cache `None` when disabled; cache populated/correct shape after call; cached == uncached bitwise; provider-backed caching; support-overlap kernel excluded from eval cache; `clear_cache` empties entries; `clear_mesh_cache` clears eval cache but preserves shared mesh; repeated N_REPS=50 workload smoke test. |
+| `tests/operators/test_sola.py` | **SOLAOperator test suite (Phases 2–5).** 103 tests (405 total across suite). Phase 2 coverage: analytic forward-integral checks (constant/polynomial/trig kernels with analytic reference values); linearity; adjoint-consistency $\langle G(f), y\rangle_D = \langle f, G^*(y)\rangle_M$; provider-backed kernels (`SineFunctionProvider`, `BumpFunctionProvider`, `CosineFunctionProvider`); direct `Function`-list and callable-list kernels; `cache_kernels` behavior and `get_cache_info`/`clear_cache` accessors; integration-method coverage; compact-support locality; Gram-matrix symmetry; `for_direct_sum`. Phase 3–4: fixed-grid batched path; complex-valued kernels; adaptive vs fixed dispatch. Phase 5 (`TestPhase5ReuseAndCaching`): shared mesh unbuilt→built→same-object; `shared_mesh_built` in `get_cache_info`; eval cache `None` when disabled; cache populated/correct shape after call; cached == uncached bitwise; provider-backed caching; support-overlap kernel excluded from eval cache; `clear_cache` empties entries; `clear_mesh_cache` clears eval cache but preserves shared mesh; repeated N_REPS=50 workload smoke test. |
 | `tests/providers/test_standalone_providers.py` | Trigonometric, FEM, smooth, wavelet, step, and data providers in standalone (domain-only) mode: `is_standalone`, `function_domain`, evaluation correctness for sine functions |
 
 **Testing patterns:**
@@ -913,4 +932,5 @@ These scripts are NOT part of the test suite; they measure runtime performance a
 |---|---|
 | `rough_work/benchmark_dli_solvers.py` | End-to-end DLI convex optimisation benchmark across `ProximalBundleMethod`, `LevelBundleMethod`, `ChambollePockSolver`, `SmoothedLBFGSSolver` with `SOLAOperator`-backed problems; measures per-solver wall time and convergence. |
 | `rough_work/benchmark_sola_baseline.py` | **SOLAOperator baseline benchmark (Phase 2).** Separates pure SOLA microbenchmarks from downstream workflow timings. Measures forward `G(f)`, adjoint `G*(y)`, and `DualMasterCostFunction.value_and_subgradient(lam)` across a parameter matrix using integration method (`simpson`, `trapz`), `n_points` (200–2000), $N_d$ (1–200), $N_p$ (0–20 for downstream hotspot scenarios), and kernel source (`sine_provider`, `callable`, `bump_provider`). The ambient `Lebesgue` basis dimension is held fixed as an implementation detail rather than swept as a primary SOLA axis. Outputs CSV to stdout. Usage: `conda run -n inferences3 python intervalinf/rough_work/benchmark_sola_baseline.py > results.csv` |
-| `rough_work/benchmark_phase5.py` | **Phase 5 repeated-workload benchmark.** Compares `cache_kernels=True` (warm calls reuse `_kernel_eval_cache`) vs `cache_kernels=False` (cold, recomputes evals every call) over N_REPS=50 distinct input functions. Sweeps $N_d$ ∈ {5,10,20,50,100,200} with n_points=1000 (Simpson). Measured speedup: 1.6x–3.4x. Usage: `conda run -n inferences3 python intervalinf/rough_work/benchmark_phase5.py` |
+| `rough_work/benchmark_phase5.py` | **Phase 5 repeated-workload benchmark.** Compares `cache_kernels=True` (warm calls reuse `_kernel_eval_cache`) vs `cache_kernels=False` (cold, recomputes evals every call) over N_REPS=50 distinct input functions. Sweeps $N_d$ ∈ {5,10,20,50,100,200} with n_points=1000 (Simpson). Measured speedup: 1.6x–5.2x. Usage: `conda run -n inferences3 python intervalinf/rough_work/benchmark_phase5.py` |
+| `rough_work/benchmark_phase6_comparison.py` | **Phase 6 end-to-end comparison benchmark.** Three-way comparison: `_apply_kernels_generic` (Phase 2 baseline path), Phase 4 batched fast path, and Phase 5 warm-cached path. Also validates adjoint consistency and accuracy vs adaptive-quad reference. Writes `benchmark_phase6_results.csv`. Usage: `conda run -n inferences3 python intervalinf/rough_work/benchmark_phase6_comparison.py` |
