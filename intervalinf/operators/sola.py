@@ -203,36 +203,58 @@ class SOLAOperator(LinearOperator):
         """
         Apply the kernel functions to a function by integrating their product.
 
-        For each kernel k_i, computes ∫ func(x) * k_i(x) dx
+        For each kernel k_i, computes $\\int f(x) \\, k_i(x) \\, dx$.
+
+        Support propagation (Phase 3): if both ``func`` and the kernel carry
+        compact-support metadata, the integration range is narrowed to the
+        support intersection.  When the supports are disjoint the result is
+        exactly 0 without evaluating the integrand.
 
         Parameters
         ----------
         func : Function
-            Function from the domain space
+            Function from the domain space.
 
         Returns
         -------
         numpy.ndarray
-            Vector of data in R^{N_d}
+            Vector of data in $\\mathbb{R}^{N_d}$.
         """
         data = np.zeros(self.N_d)
+        domain = self._domain.function_domain
+        method = self.integration.method
+        n_points = self.integration.n_points
 
         for i in range(self.N_d):
             # Lazily get the i-th kernel
             kernel = self.get_kernel(i)
 
-            # Compute integral of product: ∫ func(x) * kernel(x) dx
-            def product_callable(x, _kernel=kernel):
-                return (func.evaluate(x) *
-                        _kernel.evaluate(x, check_domain=False))
-
-            product_func = Function(
-                self._domain.function_domain,
-                evaluate_callable=product_callable
+            # Narrow the integration range to compound support intersection.
+            # Function._intersect_supports returns None when either operand has
+            # no compact-support hint (safe: integrates over the full domain).
+            intersected_support = Function._intersect_supports(
+                func.support, kernel.support
             )
-            data[i] = product_func.integrate(
-                method=self.integration.method,
-                n_points=self.integration.n_points
+
+            # Empty intersection → product is identically zero; no need to
+            # evaluate the integrand at all.
+            if intersected_support == []:
+                continue  # data[i] already 0.0
+
+            def product_callable(x, _f=func, _k=kernel):
+                return _f.evaluate(
+                    x,
+                    check_domain=False,
+                ) * _k.evaluate(
+                    x,
+                    check_domain=False,
+                )
+
+            data[i] = domain.integrate(
+                product_callable,
+                method=method,
+                support=intersected_support,
+                n_points=n_points,
             )
 
         return data
@@ -289,30 +311,40 @@ class SOLAOperator(LinearOperator):
         """
         Compute the Gram matrix of the kernels using function integration.
 
-        For kernels k_i, k_j, computes ∫ k_i(x) * k_j(x) dx
+        For kernels $k_i, k_j$, computes $G_{ij} = \\int k_i(x) k_j(x) \\, dx$.
+
+        Support propagation is applied: if both kernels have compact-support
+        metadata, integration is restricted to the support intersection.
 
         Returns
         -------
         numpy.ndarray
-            N_d x N_d matrix of integrals between kernels
+            $N_d \\times N_d$ matrix of kernel inner products.
         """
         gram = np.zeros((self.N_d, self.N_d))
+        domain = self._domain.function_domain
+        method = self.integration.method
+        n_points = self.integration.n_points
 
         for i in range(self.N_d):
             kernel_i = self.get_kernel(i)
             for j in range(self.N_d):
                 kernel_j = self.get_kernel(j)
 
+                intersected_support = Function._intersect_supports(
+                    kernel_i.support, kernel_j.support
+                )
+                if intersected_support == []:
+                    continue  # gram[i, j] already 0.0
+
                 def product_callable(x, _ki=kernel_i, _kj=kernel_j):
                     return _ki.evaluate(x) * _kj.evaluate(x)
 
-                product_func = Function(
-                    self._domain.function_domain,
-                    evaluate_callable=product_callable
-                )
-                gram[i, j] = product_func.integrate(
-                    method=self.integration.method,
-                    n_points=self.integration.n_points
+                gram[i, j] = domain.integrate(
+                    product_callable,
+                    method=method,
+                    support=intersected_support,
+                    n_points=n_points,
                 )
 
         return gram

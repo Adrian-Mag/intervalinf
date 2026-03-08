@@ -143,7 +143,7 @@ compared against known behavior, numerical accuracy, and runtime characteristics
 
 ## Phase 3: Integration API cleanup and low-risk semantic fixes
 
-**Status:** ⬜ Not started
+**Status:** ✅ Complete (2026-03-08)
 
 **Objective:** Clean up inconsistencies and remove low-risk inefficiencies before adding
 more ambitious acceleration paths.
@@ -164,6 +164,26 @@ more ambitious acceleration paths.
 - No behavior regressions in baseline tests.
 - Updated benchmarks still reproduce the Phase 2 baseline within tolerance, except where
   the cleanup intentionally fixes broken or inconsistent behavior.
+
+**Outcome:**
+- Resolved the `IntegrationConfig(method='quad')` / `IntervalDomain.integrate` naming
+  mismatch: both `'quad'` and `'adaptive'` are now accepted everywhere.  `'quad'` is the
+  legacy alias; `'adaptive'` is the canonical name.
+- Added `FIXED_GRID_METHODS` and `ADAPTIVE_METHODS` module-level frozensets to
+  `config.py`; added `is_fixed_grid` and `is_adaptive` properties on `IntegrationConfig`;
+  added `IntegrationConfig.adaptive_quad()` classmethod preset.
+- Eliminated the unnecessary `Function` wrapper allocation per kernel in
+  `SOLAOperator._apply_kernels`; now calls `domain.integrate()` directly.
+- Added support-propagation in `SOLAOperator._apply_kernels` and `compute_gram_matrix`:
+  when both the input function and the kernel carry compact-support metadata the
+  integration range is narrowed to the support intersection, and disjoint supports
+  return exactly 0 without evaluating the integrand.
+- Added 12 new tests covering `'quad'`/`'adaptive'` aliasing, `is_fixed_grid` /
+  `is_adaptive` properties, `FIXED_GRID_METHODS` / `ADAPTIVE_METHODS` constants,
+  `adaptive_quad()` preset, disjoint-support early return, and support-propagation
+  correctness.  Total: 60 SOLA tests / 362 across the test suite, all passing.
+- Updated the living reference to document module-level constants, new config
+  properties, the `'quad'` alias, and Phase 3 SOLAOperator behavioral changes.
 
 ---
 
@@ -268,3 +288,4 @@ accurate map of the operator.
 | 2026-03-08 | Planning | Recorded project decisions: keep benchmark artifacts in `rough_work/`, make fixed-grid acceleration automatic, and include integration-method cleanup in scope |
 | 2026-03-08 | Phase 1 | Completed implementation and dependency audit; documented exact forward/adjoint call graph, preserved invariants, current inefficiencies, constraints, and recommended Phase 2 benchmark surfaces |
 | 2026-03-08 | Phase 2 | Added dedicated SOLA baseline tests, a rough-work benchmark harness, and living-reference updates; review approved after minor cleanup |
+| 2026-03-08 | Phase 3 | Resolved `quad`/`adaptive` naming mismatch; added `is_fixed_grid`/`is_adaptive` properties and module-level method-set constants; eliminated `Function` wrapper allocation in `_apply_kernels`; added support-propagation in `_apply_kernels` and `compute_gram_matrix`; 12 new tests added (60 SOLA / 362 total) |

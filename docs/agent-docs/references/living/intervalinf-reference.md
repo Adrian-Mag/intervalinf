@@ -139,7 +139,7 @@ No pygeoinf dependency. Safe to import anywhere.
 | `interior()` | `→ IntervalDomain` | Returns open version |
 | `closure()` | `→ IntervalDomain` | Returns closed version |
 | `boundary_points()` | `→ (float, float)` | Returns $(a, b)$ |
-| `integrate(f, ...)` | `(callable, method, support, n_points, vectorized) → float` | Integrates $f$ via `'simpson'`, `'trapz'`, or `'adaptive'`; supports subinterval `support` |
+| `integrate(f, ...)` | `(callable, method, support, n_points, vectorized) → float` | Integrates $f$ via `'simpson'`, `'trapz'`, `'adaptive'`, or `'quad'` (alias for `'adaptive'`); supports subinterval `support` |
 | `restriction_to_subinterval(a, b)` | `(float, float) → IntervalDomain` | Creates child domain $[a,b] \subseteq$ self |
 | `split_at_discontinuities(pts)` | `(list) → list[IntervalDomain]` | Splits at interior discontinuity points |
 
@@ -215,14 +215,21 @@ Supported `bc_type` values:
 
 **Purpose:** Typed configuration objects for numerical integration and parallelisation.
 
+**Module-level constants (Phase 3):**
+
+| Constant | Value | Purpose |
+|---|---|---|
+| `FIXED_GRID_METHODS` | `frozenset({'simpson', 'trapz'})` | Fixed-point-mesh methods; candidates for Phase 4 batching |
+| `ADAPTIVE_METHODS` | `frozenset({'adaptive', 'quad'})` | Methods delegating to `scipy.integrate.quad`; `'quad'` is an alias for `'adaptive'` |
+
 | Class | Constructor | Fields | Presets |
 |---|---|---|---|
-| `IntegrationConfig` | `(method='simpson', n_points=1000)` | `method`, `n_points` | `.high_accuracy()`, `.fast()`, `.adaptive(dim)` |
+| `IntegrationConfig` | `(method='simpson', n_points=1000)` | `method`, `n_points`, `is_fixed_grid` (prop), `is_adaptive` (prop) | `.high_accuracy()`, `.fast()`, `.adaptive_quad()`, `.adaptive(dim)` |
 | `ParallelConfig` | `(enabled=False, n_jobs=-1)` | `enabled`, `n_jobs` | `.all_cores()`, `.cores(n)`, `.serial()` |
 | `LebesgueIntegrationConfig` | `(inner_product, dual, general)` | Three `IntegrationConfig` sub-configs | `.from_single(cfg)`, `.high_accuracy_galerkin()`, `.adaptive_spectral(dim)` |
 | `LebesgueParallelConfig` | `(inner_product, dual, general)` | Three `ParallelConfig` sub-configs | `.from_single(cfg)`, `.parallel_dual(n_jobs)`, `.full_parallel(n_jobs)` |
 
-All dataclasses support `.copy(**overrides)`.
+All dataclasses support `.copy(**overrides)`.  `IntegrationConfig.method` accepts `'simpson'`, `'trapz'`, `'adaptive'`, and `'quad'` (alias for `'adaptive'`).  `is_fixed_grid` is `True` for `'simpson'` / `'trapz'` and determines Phase 4 batchability.
 
 ---
 
@@ -513,10 +520,20 @@ All spectral operators share the pattern: project $f$ onto eigenfunctions $\{\ph
 | `get_cache_info()` | Returns dict with `caching_enabled`, `cached_functions`, `total_functions`, `cache_coverage` |
 | `for_direct_sum(domain, codomain, kernels, ...)` | **Static.** Creates a `RowLinearOperator` with one `SOLAOperator` per subspace; kernels restricted via `provider.restrict(subspace)` or `Function.restrict(subspace)` |
 
-**Known behavioral quirks (Phase 1 audit):**
-- `IntegrationConfig.method='quad'` is NOT forwarded to `IntervalDomain.integrate`; domain uses `'adaptive'`. Passing `'quad'` raises `ValueError`. Phase 3 will reconcile this.
-- Compact-support metadata on the product integrand is NOT currently propagated inside `_apply_kernels`; integration always covers the full domain.
-- Reconstructed adjoint functions loop over kernels on each evaluation.
+**Phase 3 changes (2026-03-08):**
+- `IntegrationConfig(method='quad')` now works correctly — `'quad'` routes to `scipy.integrate.quad` via the `'adaptive'` alias in `IntervalDomain.integrate`.
+- `_apply_kernels` no longer allocates a `Function` wrapper per kernel; it calls `domain.integrate()` directly.
+- `_apply_kernels` and `compute_gram_matrix` now propagate compact-support metadata: when both the input function and the kernel carry compact-support information, the integration range is narrowed to the support intersection.  Disjoint supports return 0 without evaluating the integrand.
+- Reconstructed adjoint functions still loop over kernels on each evaluation (Phase 5/6 scope).
+
+**Integration method support (Phase 3):**
+
+| `IntegrationConfig.method` | Behaviour | `is_fixed_grid` | Phase 4 batchable |
+|---|---|---|---|
+| `'simpson'` | Composite Simpson on uniform mesh | True | Yes |
+| `'trapz'` | Composite trapezoidal on uniform mesh | True | Yes |
+| `'adaptive'` | `scipy.integrate.quad` error-controlled | False | No |
+| `'quad'` | Alias for `'adaptive'` (legacy name) | False | No |
 
 ---
 

@@ -477,10 +477,10 @@ class TestCaching:
 
 class TestIntegrationMethods:
     """
-    Forward results are consistent across simpson and trapz.
-    (The 'quad' config name does NOT map to domain-level 'adaptive' — this
-    is a known naming inconsistency documented in the Phase 1 audit.  We
-    record the current failing behavior here as a baseline, not fix it.)
+    Forward results are consistent across fixed-grid and adaptive methods.
+
+    Phase 3 makes ``quad`` a supported legacy alias for the canonical
+    adaptive path.
     """
 
     @pytest.fixture
@@ -522,18 +522,86 @@ class TestIntegrationMethods:
         r_trapz = G_trapz(test_f)
         assert_allclose(r_simp, r_trapz, rtol=1e-3)
 
-    def test_quad_method_name_raises_at_domain_level(self, unit_kernels, test_f):
+    def test_quad_works_as_adaptive_alias(self, unit_kernels, test_f):
         """
-        'quad' is advertised by IntegrationConfig but NOT supported by
-        IntervalDomain.integrate(), which uses 'adaptive' instead.
-        This test records the current error behavior as a baseline.
-        Phase 3 should reconcile this naming mismatch.
+        Phase 3: 'quad' in IntegrationConfig now aliases the adaptive
+        (scipy.integrate.quad) path.  G(f) must succeed and match the
+        analytic result.
         """
         M, D, kernels = unit_kernels
         G = SOLAOperator(M, D, kernels=kernels,
                          integration_config=IntegrationConfig(method="quad", n_points=500))
-        with pytest.raises(ValueError, match="Unknown integration method"):
-            G(test_f)
+        # Must not raise; ∫₀¹ sin(πx) dx = 2/π
+        result = G(test_f)
+        assert_allclose(result[0], 2.0 / np.pi, rtol=1e-4)
+
+    def test_adaptive_method_works(self, unit_kernels, test_f):
+        """
+        Phase 3: 'adaptive' is now the canonical name for the
+        scipy.integrate.quad path.  It must produce correct results.
+        """
+        M, D, kernels = unit_kernels
+        G = SOLAOperator(M, D, kernels=kernels,
+                         integration_config=IntegrationConfig(method="adaptive", n_points=500))
+        result = G(test_f)
+        assert_allclose(result[0], 2.0 / np.pi, rtol=1e-4)
+
+    def test_quad_and_adaptive_give_same_result(self, unit_kernels, test_f):
+        """Both alias names must produce identical outputs."""
+        M, D, kernels = unit_kernels
+        G_quad = SOLAOperator(M, D, kernels=kernels,
+                              integration_config=IntegrationConfig(method="quad", n_points=500))
+        G_adapt = SOLAOperator(M, D, kernels=kernels,
+                               integration_config=IntegrationConfig(method="adaptive", n_points=500))
+        assert_allclose(G_quad(test_f), G_adapt(test_f), rtol=1e-10)
+
+    def test_adaptive_agrees_with_simpson(self, unit_kernels, test_f):
+        """adaptive/quad results match simpson at sufficient accuracy."""
+        M, D, kernels = unit_kernels
+        G_adapt = SOLAOperator(M, D, kernels=kernels,
+                               integration_config=IntegrationConfig(method="adaptive"))
+        G_simp = SOLAOperator(M, D, kernels=kernels,
+                              integration_config=IntegrationConfig(method="simpson", n_points=5000))
+        assert_allclose(G_adapt(test_f), G_simp(test_f), rtol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# 8b. IntegrationConfig property tests (Phase 3)
+# ---------------------------------------------------------------------------
+
+class TestIntegrationConfigProperties:
+    """Unit tests for the is_fixed_grid / is_adaptive properties added in Phase 3."""
+
+    def test_simpson_is_fixed_grid(self):
+        assert IntegrationConfig(method="simpson").is_fixed_grid is True
+
+    def test_trapz_is_fixed_grid(self):
+        assert IntegrationConfig(method="trapz").is_fixed_grid is True
+
+    def test_adaptive_is_not_fixed_grid(self):
+        assert IntegrationConfig(method="adaptive").is_fixed_grid is False
+
+    def test_quad_is_not_fixed_grid(self):
+        assert IntegrationConfig(method="quad").is_fixed_grid is False
+
+    def test_is_adaptive_complement_of_is_fixed_grid(self):
+        for method in ("simpson", "trapz", "adaptive", "quad"):
+            cfg = IntegrationConfig(method=method)
+            assert cfg.is_adaptive == (not cfg.is_fixed_grid)
+
+    def test_fixed_grid_methods_constant(self):
+        from intervalinf.core.config import FIXED_GRID_METHODS, ADAPTIVE_METHODS
+        assert "simpson" in FIXED_GRID_METHODS
+        assert "trapz" in FIXED_GRID_METHODS
+        assert "adaptive" in ADAPTIVE_METHODS
+        assert "quad" in ADAPTIVE_METHODS
+        assert FIXED_GRID_METHODS.isdisjoint(ADAPTIVE_METHODS)
+
+    def test_adaptive_quad_preset(self):
+        """IntegrationConfig.adaptive_quad() returns an adaptive-method config."""
+        cfg = IntegrationConfig.adaptive_quad()
+        assert cfg.is_adaptive
+        assert cfg.method in ("adaptive", "quad")
 
 
 # ---------------------------------------------------------------------------
@@ -542,12 +610,15 @@ class TestIntegrationMethods:
 
 class TestCompactSupportBehavior:
     """
-    Verify current behavior (baseline) for compact-support kernels.
+    Compact-support correctness tests.
 
-    As documented in the Phase 1 audit, compact-support metadata on the
-    product integrand is NOT currently propagated inside _apply_kernels,
-    so integration always covers the full domain.  These tests verify
-    the current correctness (not performance) of compact-support scenarios.
+    Phase 3 adds support-propagation inside _apply_kernels: when both the
+    input function and the kernel carry compact-support metadata, the
+    integration range is narrowed to the support intersection.  These tests
+    verify:
+    1. Existing correctness is preserved (original results unchanged).
+    2. Disjoint-support case returns exactly 0.
+    3. Results with explicit support metadata match results without it.
     """
 
     def test_bump_kernel_localized_at_left(self, lebesgue_space, unit_domain):
@@ -599,6 +670,57 @@ class TestCompactSupportBehavior:
         result = G(f)
         assert_allclose(result[0], 0.2, atol=0.02)
         assert_allclose(result[1], 0.8, atol=0.02)
+
+    def test_disjoint_support_explicit_kernel_returns_zero(self, lebesgue_space, unit_domain):
+        """
+        Phase 3: kernel with compact support entirely in [0.7, 1.0], function
+        with compact support entirely in [0.0, 0.3].  Support intersection is
+        empty → G(f)[0] must be exactly 0.
+        """
+        k = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.where(
+                (np.asarray(x) >= 0.7) & (np.asarray(x) <= 1.0), 1.0, 0.0
+            ),
+            support=[(0.7, 1.0)],
+        )
+        D = EuclideanSpace(1)
+        G = SOLAOperator(lebesgue_space, D, kernels=[k],
+                         integration_config=IntegrationConfig(method="simpson", n_points=1000))
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x,
+                     support=[(0.0, 0.3)])
+        result = G(f)
+        assert_allclose(result[0], 0.0, atol=1e-12)
+
+    def test_support_propagation_matches_no_support_metadata(self, lebesgue_space, unit_domain):
+        """
+        Phase 3: a kernel with support=[0.2, 0.8] should give the same
+        forward value as an identical kernel without support metadata, because
+        both the integrand value and the integration range are equivalent when
+        the kernel is zero outside its support.
+        """
+        def k_callable(x):
+            x = np.asarray(x)
+            return np.where((x >= 0.2) & (x <= 0.8), np.sin(np.pi * x), 0.0)
+
+        k_with_support = Function(
+            unit_domain,
+            evaluate_callable=k_callable,
+            support=[(0.2, 0.8)],
+        )
+        k_no_support = Function(
+            unit_domain,
+            evaluate_callable=k_callable,
+        )
+        D = EuclideanSpace(2)
+        cfg = IntegrationConfig(method="simpson", n_points=2000)
+        G_with = SOLAOperator(lebesgue_space, D, kernels=[k_with_support, k_no_support], integration_config=cfg)
+        G_none = SOLAOperator(lebesgue_space, D, kernels=[k_no_support, k_no_support], integration_config=cfg)
+        f = Function(lebesgue_space, evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0)
+        # Both kernels are identical callables, so results should be identical
+        r_with = G_with(f)
+        r_none = G_none(f)
+        assert_allclose(r_with, r_none, rtol=1e-6)
 
 
 # ---------------------------------------------------------------------------
