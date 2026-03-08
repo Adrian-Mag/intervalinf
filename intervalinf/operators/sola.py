@@ -117,9 +117,9 @@ class SOLAOperator(LinearOperator):
 
         # Phase 5: kernel mesh evaluation cache.
         # Maps kernel index → ndarray of values on the shared fixed-grid mesh.
-        # Populated only for full-domain kernels (support is None on both the
-        # kernel and the input function); compact-support kernels always fall
-        # back to the generic path and are never stored here.
+        # Populated for kernels that take the batched path. Fallback to the
+        # generic path happens only when a support intersection is explicitly
+        # computable from both func.support and kernel.support.
         # Only active when cache_kernels=True so that provider-backed kernels
         # whose Function objects are also cached remain the source of truth.
         self._kernel_eval_cache: Optional[dict] = (

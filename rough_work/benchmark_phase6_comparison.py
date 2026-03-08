@@ -4,16 +4,17 @@ Phase 6 end-to-end comparison benchmark.
 Produces a final summary comparing three forward-path variants across the full
 scenario matrix from Phase 2:
 
-  generic   — Phase 2 baseline: per-kernel loop (_apply_kernels_generic)
-  fast      — Phase 4 batched: shared mesh + vectorised product integration
-  cached    — Phase 5 cached: fast + kernel-eval cache for repeated workloads
+    generic   — forced generic path in the current codebase,
+                            corresponding to Phase 2 behavior
+    fast      — forced Phase 4 batched path
+    cached    — forced Phase 5 cached batched path
 
 Also validates:
-  accuracy  — max absolute error vs a high-accuracy adaptive reference
-  adjoint   — <G(f), y>_D - <f, G*(y)>_M (should be < 1e-6)
+    accuracy  — max absolute error vs a high-accuracy adaptive reference
+    adjoint   — heuristic residual <G(f), y>_D - <f, G*(y)>_M
 
 Run from workspace root:
-    conda run -n inferences3 python intervalinf/rough_work/benchmark_phase6_comparison.py
+    python rough_work/benchmark_phase6_comparison.py
 
 Output: printed table + a CSV artifact written alongside this file.
 """
@@ -23,6 +24,7 @@ import csv
 import statistics
 import time
 from pathlib import Path
+from typing import Literal, TypedDict
 
 import numpy as np
 
@@ -30,6 +32,18 @@ from intervalinf import IntervalDomain, Lebesgue, Function, IntegrationConfig
 from intervalinf.providers import SineFunctionProvider, BumpFunctionProvider
 from intervalinf.operators import SOLAOperator
 from pygeoinf import EuclideanSpace
+
+
+MethodName = Literal["simpson", "trapz", "adaptive", "quad"]
+
+
+class Scenario(TypedDict):
+    label: str
+    method: MethodName
+    n_points: int
+    N_d: int
+    kernel_source: str
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -53,14 +67,22 @@ def _median_ms(fn, *args, n: int = N_OUTER) -> float:
 # Accuracy validation
 # ---------------------------------------------------------------------------
 
-def _accuracy_error(G_test: SOLAOperator, f: Function, G_ref: SOLAOperator) -> float:
+def _accuracy_error(
+    G_test: SOLAOperator,
+    f: Function,
+    G_ref: SOLAOperator,
+) -> float:
     """Max absolute error of G_test(f) vs G_ref(f)."""
     y_test = G_test(f)
     y_ref = G_ref(f)
     return float(np.max(np.abs(y_test - y_ref)))
 
 
-def _adjoint_consistency(G: SOLAOperator, f: Function, y_np: np.ndarray) -> float:
+def _adjoint_consistency(
+    G: SOLAOperator,
+    f: Function,
+    y_np: np.ndarray,
+) -> float:
     """|<G(f), y>_D − <f, G*(y)>_M|.
 
     G.adjoint(y) takes a numpy array for EuclideanSpace codomain and returns a
@@ -69,11 +91,12 @@ def _adjoint_consistency(G: SOLAOperator, f: Function, y_np: np.ndarray) -> floa
     Gf = G(f)
     lhs = float(np.dot(Gf, y_np))
     Gstar_y = G.adjoint(y_np)  # returns a Function
-    domain = G.domain.function_domain
+    domain = f.function_domain
     product_fn = Function(
         domain,
         evaluate_callable=lambda x, _f=f, _g=Gstar_y: (
-            _f.evaluate(x, check_domain=False) * _g.evaluate(x, check_domain=False)
+            _f.evaluate(x, check_domain=False)
+            * _g.evaluate(x, check_domain=False)
         ),
     )
     rhs = float(product_fn.integrate(method="simpson", n_points=2000))
@@ -87,7 +110,7 @@ def _adjoint_consistency(G: SOLAOperator, f: Function, y_np: np.ndarray) -> floa
 def run_scenario(
     *,
     label: str,
-    method: str,
+    method: MethodName,
     n_points: int,
     N_d: int,
     kernel_source: str,
@@ -111,7 +134,11 @@ def run_scenario(
     elif kernel_source == "bump_provider":
         centers = np.linspace(0.05, 0.95, N_d) if N_d > 1 else np.array([0.5])
         width = min(0.35, 0.8 / max(N_d, 1))
-        kernels_obj = BumpFunctionProvider(domain, centers=centers, default_width=width)
+        kernels_obj = BumpFunctionProvider(
+            domain,
+            centers=centers,
+            default_width=width,
+        )
     else:
         raise ValueError(kernel_source)
 
@@ -130,13 +157,10 @@ def run_scenario(
     y_np = rng_global.standard_normal(N_d)
 
     # --- single-call timings ---
-    # generic: force through _apply_kernels_generic regardless of method
-    t_generic = _median_ms(G_generic._apply_kernels_generic, f)
-    # fast: standard dispatch (will use fixed-grid path for 'simpson'/'trapz')
-    t_fast = _median_ms(G_fast, f)
-    # cached: warm up first, then measure warm calls
-    _ = G_cached(f)  # warm up eval cache
-    t_cached = _median_ms(G_cached, f)
+    t_generic = _median_ms(lambda: G_generic._apply_kernels_generic(f))
+    t_fast = _median_ms(lambda: G_fast._apply_kernels_fixed_grid(f))
+    _ = G_cached._apply_kernels_fixed_grid(f)  # warm up eval cache
+    t_cached = _median_ms(lambda: G_cached._apply_kernels_fixed_grid(f))
 
     # --- repeated-workload timings (N_REPS distinct inputs) ---
     inputs = [
@@ -145,7 +169,7 @@ def run_scenario(
         for a in range(N_REPS)
     ]
     # cached: pre-warm
-    _ = G_cached(inputs[0])
+    _ = G_cached._apply_kernels_fixed_grid(inputs[0])
 
     def _timed_batch(op):
         t0 = time.perf_counter()
@@ -153,13 +177,27 @@ def run_scenario(
             op(fi)
         return (time.perf_counter() - t0) * 1000
 
-    batch_generic = statistics.median([_timed_batch(G_generic) for _ in range(4)])
-    batch_fast = statistics.median([_timed_batch(G_fast) for _ in range(4)])
-    batch_cached = statistics.median([_timed_batch(G_cached) for _ in range(4)])
+    batch_generic = statistics.median(
+        [_timed_batch(G_generic._apply_kernels_generic) for _ in range(4)]
+    )
+    batch_fast = statistics.median(
+        [_timed_batch(G_fast._apply_kernels_fixed_grid) for _ in range(4)]
+    )
+    batch_cached = statistics.median(
+        [_timed_batch(G_cached._apply_kernels_fixed_grid) for _ in range(4)]
+    )
 
     # --- accuracy ---
-    acc_generic = _accuracy_error(G_generic, f, G_ref) if method != "adaptive" else 0.0
-    acc_fast = _accuracy_error(G_fast, f, G_ref) if method != "adaptive" else 0.0
+    acc_generic = (
+        _accuracy_error(G_generic, f, G_ref)
+        if method != "adaptive"
+        else 0.0
+    )
+    acc_fast = (
+        _accuracy_error(G_fast, f, G_ref)
+        if method != "adaptive"
+        else 0.0
+    )
 
     # --- adjoint consistency ---
     adj_err = _adjoint_consistency(G_fast, f, y_np)
@@ -180,7 +218,9 @@ def run_scenario(
         "batch_generic_ms": batch_generic,
         "batch_fast_ms": batch_fast,
         "batch_cached_ms": batch_cached,
-        "batch_speedup_cached_vs_generic": batch_generic / max(batch_cached, 1e-9),
+        "batch_speedup_cached_vs_generic": (
+            batch_generic / max(batch_cached, 1e-9)
+        ),
         # accuracy vs adaptive reference
         "acc_generic_vs_ref": acc_generic,
         "acc_fast_vs_ref": acc_fast,
@@ -193,26 +233,62 @@ def run_scenario(
 # Scenario matrix
 # ---------------------------------------------------------------------------
 
-SCENARIOS = [
+SCENARIOS: list[Scenario] = [
     # N_d scaling (main axis)
-    *[dict(label=f"N_d={N}", method="simpson", n_points=1000,
-           N_d=N, kernel_source="sine_provider")
-      for N in [5, 10, 20, 50, 100, 200]],
+    *[
+        Scenario(
+            label=f"N_d={N}",
+            method="simpson",
+            n_points=1000,
+            N_d=N,
+            kernel_source="sine_provider",
+        )
+        for N in [5, 10, 20, 50, 100, 200]
+    ],
     # n_points sweep
-    *[dict(label=f"npts={p}", method="simpson", n_points=p,
-           N_d=20, kernel_source="sine_provider")
-      for p in [200, 500, 1000, 2000]],
+    *[
+        Scenario(
+            label=f"npts={p}",
+            method="simpson",
+            n_points=p,
+            N_d=20,
+            kernel_source="sine_provider",
+        )
+        for p in [200, 500, 1000, 2000]
+    ],
     # trapz variant
-    *[dict(label=f"trapz_N_d={N}", method="trapz", n_points=1000,
-           N_d=N, kernel_source="sine_provider")
-      for N in [20, 100]],
+    *[
+        Scenario(
+            label=f"trapz_N_d={N}",
+            method="trapz",
+            n_points=1000,
+            N_d=N,
+            kernel_source="sine_provider",
+        )
+        for N in [20, 100]
+    ],
     # kernel source comparison
-    dict(label="ksrc=callable", method="simpson", n_points=1000,
-         N_d=20, kernel_source="callable"),
-    dict(label="ksrc=bump_Nd=20", method="simpson", n_points=1000,
-         N_d=20, kernel_source="bump_provider"),
-    dict(label="ksrc=bump_Nd=50", method="simpson", n_points=1000,
-         N_d=50, kernel_source="bump_provider"),
+    Scenario(
+        label="ksrc=callable",
+        method="simpson",
+        n_points=1000,
+        N_d=20,
+        kernel_source="callable",
+    ),
+    Scenario(
+        label="ksrc=bump_Nd=20",
+        method="simpson",
+        n_points=1000,
+        N_d=20,
+        kernel_source="bump_provider",
+    ),
+    Scenario(
+        label="ksrc=bump_Nd=50",
+        method="simpson",
+        n_points=1000,
+        N_d=50,
+        kernel_source="bump_provider",
+    ),
 ]
 
 
@@ -256,9 +332,10 @@ HEADER = (
 
 LEGEND = """
 Columns:
-  generic_ms   — per-call time using _apply_kernels_generic (Phase 2 baseline path)
-  fast_ms      — per-call time using Phase 4 batched fixed-grid path
-  cached_ms    — per-call time warm (Phase 5 cached)
+    generic_ms   — per-call time using the forced generic path
+                                 (_apply_kernels_generic), corresponding to Phase 2 behavior
+    fast_ms      — per-call time using the forced Phase 4 batched path
+    cached_ms    — per-call time using the forced Phase 5 cached batched path
   P4_spdup     — single-call speedup of fast over generic
   P5_spdup     — single-call speedup of cached over generic
   batchSp      — batch speedup of cached over generic (30 distinct inputs)

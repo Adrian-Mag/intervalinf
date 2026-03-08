@@ -532,13 +532,13 @@ All spectral operators share the pattern: project $f$ onto eigenfunctions $\{\ph
 - Reconstructed adjoint functions still loop over kernels on each evaluation (Phase 5/6 scope).
 
 **Phase 5 changes (2026-03-08):** Kernel-eval caching for repeated workloads.
-- **`_shared_mesh: Optional[np.ndarray]`** — lazy-built on first `_apply_kernels_fixed_grid` call via `np.linspace(a, b, n_points)`. Never cleared; depends only on immutable constructor parameters (domain bounds + n_points). Also set on `_apply_kernels_generic` path — not used there, but ensures `get_cache_info()` reports `shared_mesh_built` correctly.
+- **`_shared_mesh: Optional[np.ndarray]`** — lazy-built on first `_apply_kernels_fixed_grid` call via `np.linspace(a, b, n_points)`. Never cleared; depends only on immutable constructor parameters (domain bounds + n_points).
 - **`_kernel_eval_cache: Optional[dict]`** — `None` when `cache_kernels=False`; otherwise a dict mapping kernel index → `ndarray` of shape `(n_points,)` (kernel values on the shared mesh). Populated **only** on the batched path. Cleared by `clear_cache()` and `clear_mesh_cache()`; `_shared_mesh` is never cleared.
 - **`_get_or_build_mesh()`** — private helper; builds and stores `_shared_mesh` on first call, returns it on subsequent calls.
 - **Batched-path loop** now checks eval cache before calling `_eval_on_mesh(kernel, xs)`; stores result if not present.
 - **Cache semantics:** A kernel is cached iff it goes through the batched path. A kernel goes through the generic fallback (NOT cached) only when `_intersect_supports(func.support, kernel.support)` returns a non-`None`, non-empty list (i.e. BOTH function and kernel have compact-support metadata that overlaps). Disjoint supports → kernel skipped entirely (also not cached).
 - **Memory:** each entry ≈ 8 KB at n_points=1000; N_d entries ≈ N_d × 8 KB (e.g. 200 × 8 KB = 1.6 MB).
-- **Measured speedup** for repeated workloads (N_REPS=50 distinct input functions, n_points=1000): 1.6x–3.4x across N_d 5–200.
+- **Measured speedup** for repeated workloads (N_REPS=50 distinct input functions, n_points=1000): about 1.6x–3.6x across N_d 5–200 on the current benchmark.
 
 **Phase 4 changes (2026-03-08):**
 - `_apply_kernels` now dispatches based on `self.integration.is_fixed_grid`:
@@ -568,22 +568,37 @@ All spectral operators share the pattern: project $f$ onto eigenfunctions $\{\ph
 
 **Phase 6 end-to-end performance summary (2026-03-08):**
 
-Validated against the Phase 2 baseline path (`_apply_kernels_generic`) on a full benchmark matrix (N_d 5–200, n_points 200–2000, simpson/trapz, sine/callable/bump kernels).
+Validated against the forced generic path in the current codebase
+(`_apply_kernels_generic`), which reproduces the Phase 2 forward-path behavior
+without checking out an earlier revision. The comparison matrix covers N_d
+5–200, n_points 200–2000, simpson/trapz, and sine/callable/bump kernels.
 
 | Workload | Phase 4 single-call speedup | Phase 5 single-call speedup (warm) | Phase 5 batch speedup (N=30) |
 |---|---|---|---|
-| sine_provider, N_d 5–20 | 2.8x–4.9x | 4.7x–13x | 1.6x–2.6x |
-| sine_provider, N_d 50–200 | 3.8x–5.5x | 7.5x–20x | 2.1x–3.5x |
-| callable kernels, N_d=20 | 5.6x | 12.7x | 2.4x |
+| sine_provider, N_d 5–20 | 2.8x–4.9x | 4.7x–13x | 1.6x–2.8x |
+| sine_provider, N_d 50–200 | 3.7x–5.5x | 8.4x–19.3x | 2.1x–5.4x |
+| callable kernels, N_d=20 | 5.0x | 11.3x | 2.3x |
 | bump_provider, N_d=20 | 2.5x | 19x | 7.6x |
-| bump_provider, N_d=50 | 2.6x | 27x | 9.9x |
+| bump_provider, N_d=50 | 2.6x | 28.9x | 10.2x |
 
 Key findings:
-- **Global/smooth kernels (full-domain batched path):** Phase 4 achieves 2.8–5.5x single-call speedup via batched numpy/scipy integration; Phase 5 multiplies this by another 2–4x when the kernel-eval cache is warm.
-- **Compact-support kernels (bump_provider):** Fall through to the per-kernel Phase 3 path for support-narrowed integration.  Single-call speedup from Phase 4–5 appears high (19–27x warm) primarily because the shared mesh is reused even for the fallback path, and cached mesh + fast pass for any full-domain prefix offsets the un-cached compact-support kernels.  Always use `method='adaptive'` when high accuracy is required for peaky compact-support bump kernels: fixed-grid Simpson on the narrowed support can differ from adaptive quad by O(1) for sharp bumps.
+- **Global/smooth kernels (full-domain batched path):** Phase 4 achieves clear
+  multi-x single-call speedup via batched numpy/scipy integration; Phase 5
+  multiplies this further when the kernel-eval cache is warm.
+- **Localized bump kernels (bump_provider):** In the Phase 6 scenarios these
+  kernels are still eligible for the batched/cached fixed-grid path because the
+  test input function carries no compact-support metadata, so no explicit
+  support intersection is available. Large warm-cache gains therefore reflect
+  forced-generic versus batched/cached comparison on sharply localized kernels,
+  not a support-narrowed fallback path. Always use `method='adaptive'` when
+  high accuracy is required for peaky bump kernels: fixed-grid Simpson on a
+  global mesh can differ from adaptive quad by O(1) for sharp bumps.
 - **Accuracy (fast path vs adaptive reference):** machine-precision (< 1e-8) for global/smooth kernels with n_points ≥ 500; n_points=200 shows ~1e-5 error (acceptable for iterative methods).
-- **Adjoint residual:** < 1e-5 for all global/smooth scenarios; up to 2e-3 for large-N_d bump providers with fixed-grid integration (expected; not a regression — use 'adaptive' for high-accuracy bump scenarios).
-- **No correctness issues found; no Phase-6 code fixes required.**
+- **Adjoint residual:** heuristic check stays < 1e-5 for all global/smooth
+  scenarios; up to 2e-3 for large-N_d bump providers with fixed-grid
+  integration (expected; not a regression — use 'adaptive' for high-accuracy
+  bump scenarios).
+- **No correctness issues found; no Phase-6 implementation fixes required.**
 
 ---
 

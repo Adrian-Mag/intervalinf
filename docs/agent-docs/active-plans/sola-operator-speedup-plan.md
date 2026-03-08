@@ -308,11 +308,13 @@ accurate map of the operator.
 
 **Outcome:**
 - Full test suite: **405 tests passing** (103 SOLA-specific). No regressions.
-- Phase 4 single-call speedup over Phase 2 baseline: **2.8x–5.5x** (global/smooth kernels).
-- Phase 5 single-call speedup over Phase 2 baseline (warm cache): **5x–27x** depending
-  on N_d. The cache effect is most dramatic at high N_d (50–200) where kernel-eval reuse
-  eliminates the dominant fan-out cost.
-- Batch speedup (30 repeated calls, Phase 5 vs Phase 2): **1.6x–10x**.
+- Phase 4 single-call speedup over the forced generic path is consistently
+  multi-x on the full-domain fixed-grid scenarios.
+- Phase 5 single-call speedup over the forced generic path is often another
+  multi-x gain once the kernel-eval cache is warm, with the largest wins at
+  higher N_d where kernel-eval reuse removes the dominant fan-out cost.
+- Batch speedup for 30 repeated calls is also consistently multi-x when cached
+  fixed-grid evaluations are compared against the forced generic path.
 - Accuracy vs adaptive-quad reference: **< 1e-8** for global/smooth kernels at
   n_points=1000. Compact-support bump kernels show expected O(n_points) quadrature error
   when fixed Simpson is compared against error-controlled quad (use 'adaptive' for
@@ -320,7 +322,9 @@ accurate map of the operator.
 - Adjoint residual: **< 1e-5** for all global/smooth scenarios. Up to 2e-3 for N_d=50
   bump kernels with fixed-grid integration — within expected quadrature accuracy for that
   configuration, not a regression.
-- **No correctness fixes were needed during Phase 6.**
+- **No SOLA implementation fixes were needed during Phase 6.** The only Phase
+  6 adjustments were to the comparison/reporting script and documentation so
+  the benchmark methodology is described precisely.
 
 ---
 
@@ -347,4 +351,4 @@ accurate map of the operator.
 | 2026-03-08 | Phase 3 | Resolved `quad`/`adaptive` naming mismatch; added `is_fixed_grid`/`is_adaptive` properties and module-level method-set constants; eliminated `Function` wrapper allocation in `_apply_kernels`; added support-propagation in `_apply_kernels` and `compute_gram_matrix`; 12 new tests added (60 SOLA / 362 total) |
 | 2026-03-08 | Phase 4 | Added `_eval_on_mesh`, `_apply_kernels_fixed_grid`, `_apply_kernels_generic`; automatic dispatch in `_apply_kernels`; support-aware generic fallback for narrowed compact supports; fixed-grid complex dtype preservation in `SOLAOperator` and `IntervalDomain.integrate`; non-vectorised callable fallback; 20 new tests (80 SOLA passing); new benchmark `benchmark_phase4.py`; about 2–5x speedup over per-kernel loop |
 | 2026-03-08 | Phase 5 | Added `_shared_mesh`, `_kernel_eval_cache`, `_get_or_build_mesh()`; updated `_apply_kernels_fixed_grid` batched loop to cache/reuse kernel evals; added `clear_mesh_cache()`; updated `clear_cache()` and `get_cache_info()`; 23 new tests in `TestPhase5ReuseAndCaching` (103 SOLA passing); new benchmark `benchmark_phase5.py`; 1.6–3.4x speedup for repeated workloads |
-| 2026-03-08 | Phase 6 | Created `benchmark_phase6_comparison.py` (three-way comparison: generic vs Phase 4 fast vs Phase 5 cached) and `benchmark_phase6_results.csv`; validated accuracy < 1e-8 for global/smooth kernels; adjoint residuals < 1e-5 for global/smooth kernels; overall Phase 4 speedup 2.8–5.5x, Phase 5 warm speedup 5–27x; no code fixes required; updated living reference with Phase 6 performance table; 405 tests passing |
+| 2026-03-08 | Phase 6 | Created `benchmark_phase6_comparison.py` (three-way comparison: forced generic path vs Phase 4 fast vs Phase 5 cached) and `benchmark_phase6_results.csv`; validated accuracy < 1e-8 for global/smooth kernels and adjoint residuals < 1e-5 for those scenarios; updated the living reference with the final performance table and methodology notes; 405 tests passing |
