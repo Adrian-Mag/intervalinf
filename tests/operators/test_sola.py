@@ -18,6 +18,7 @@ Coverage includes:
 - for_direct_sum construction
 - Gram-matrix symmetry
 - get_cache_info / clear_cache accessors
+- Phase 4: automatic batched fixed-grid forward path
 """
 
 import numpy as np
@@ -870,3 +871,475 @@ class TestMiscellaneous:
         f = Function(lebesgue_space, evaluate_callable=lambda x: np.sin(np.pi * x))
         result = G(f)
         assert result.shape == (N_d,)
+
+
+# ---------------------------------------------------------------------------
+# 13. Phase 4 – Automatic batched fixed-grid forward path
+# ---------------------------------------------------------------------------
+
+class TestFastPathFixedGrid:
+    """
+    Tests for the Phase 4 automatic batched fixed-grid forward path.
+
+    The fast path is triggered automatically when
+    ``self.integration.is_fixed_grid`` is True (methods 'simpson' and
+    'trapz').  It builds the quadrature mesh once, evaluates f once on the
+    shared mesh, assembles a kernel matrix, and integrates all products with
+    a single batched scipy call.
+
+    Correctness contract: results must match the established Phase 3
+    semantics. Full-domain fixed-grid cases use the batched shared-mesh
+    path, while support-restricted cases fall back per kernel so narrowed
+    support quadrature behavior is preserved.
+
+    All tests inherit the shared fixtures defined at module level and
+    deliberately reuse analytic cases from earlier classes to confirm the
+    fast path does not change answers.
+    """
+
+    # ------------------------------------------------------------------
+    # Analytic correctness – fast path gives expected integrals
+    # ------------------------------------------------------------------
+
+    def test_fast_path_simpson_single_kernel_analytic(
+        self, lebesgue_space, unit_domain
+    ):
+        """k=1, f=x  →  G(f)[0] = 0.5  (fast simpson path)."""
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[Function(unit_domain, evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0)],
+            integration_config=IntegrationConfig(method="simpson", n_points=2000),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        assert_allclose(G(f), [0.5], rtol=1e-5)
+
+    def test_fast_path_trapz_single_kernel_analytic(
+        self, lebesgue_space, unit_domain
+    ):
+        """k=1, f=x  →  G(f)[0] ≈ 0.5  (fast trapz path)."""
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[Function(unit_domain, evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0)],
+            integration_config=IntegrationConfig(method="trapz", n_points=2000),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        assert_allclose(G(f), [0.5], rtol=1e-4)
+
+    def test_fast_path_multi_kernel_analytic(self, lebesgue_space, unit_domain):
+        """N_d=5 kernels; each G(f)[i] matches analytic integral.
+
+        k_i(x) = x^i,  f(x) = 1
+        G(f)[i] = ∫₀¹ x^i dx = 1 / (i+1)
+        """
+        N_d = 5
+        D = EuclideanSpace(N_d)
+        kernels = [
+            Function(unit_domain, evaluate_callable=(lambda i: lambda x: x ** i)(i))
+            for i in range(N_d)
+        ]
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=kernels,
+            integration_config=IntegrationConfig(method="simpson", n_points=3000),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0)
+        result = G(f)
+        expected = np.array([1.0 / (i + 1) for i in range(N_d)])
+        assert_allclose(result, expected, rtol=1e-4)
+
+    def test_fast_path_trig_kernel(self, lebesgue_space, unit_domain):
+        """k = sin(πx), f = sin(πx) → G(f) = ∫₀¹ sin²(πx) dx = 0.5."""
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[Function(unit_domain, evaluate_callable=lambda x: np.sin(np.pi * x))],
+            integration_config=IntegrationConfig(method="simpson", n_points=2000),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: np.sin(np.pi * x))
+        assert_allclose(G(f), [0.5], rtol=1e-5)
+
+    # ------------------------------------------------------------------
+    # Equivalence: fast path matches adaptive (reference) at high accuracy
+    # ------------------------------------------------------------------
+
+    def test_fast_path_matches_adaptive_reference(
+        self, lebesgue_space, unit_domain
+    ):
+        """Fast path (simpson, 5000 pts) agrees with adaptive reference to 1e-5.
+
+        Kernels chosen to avoid orthogonality to f so that all integrals are
+        substantially non-zero, making relative-tolerance comparisons reliable.
+        """
+        D = EuclideanSpace(3)
+        kernels = [
+            Function(unit_domain, evaluate_callable=lambda x: x),
+            Function(unit_domain, evaluate_callable=lambda x: 1.0 - x),
+            Function(unit_domain, evaluate_callable=lambda x: x * (1 - x)),
+        ]
+        f = Function(lebesgue_space, evaluate_callable=lambda x: np.sin(2 * np.pi * x))
+
+        G_fast = SOLAOperator(
+            lebesgue_space, D, kernels=kernels,
+            integration_config=IntegrationConfig(method="simpson", n_points=5000),
+        )
+        G_ref = SOLAOperator(
+            lebesgue_space, D, kernels=kernels,
+            integration_config=IntegrationConfig(method="adaptive"),
+        )
+        assert_allclose(G_fast(f), G_ref(f), rtol=1e-5, atol=1e-12)
+
+    def test_fast_path_trapz_matches_adaptive_reference(
+        self, lebesgue_space, unit_domain
+    ):
+        """Fast path (trapz, 5000 pts) agrees with adaptive reference to 5e-4."""
+        D = EuclideanSpace(2)
+        kernels = [
+            Function(unit_domain, evaluate_callable=lambda x: np.sin(np.pi * x)),
+            Function(unit_domain, evaluate_callable=lambda x: x),
+        ]
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x ** 2)
+
+        G_fast = SOLAOperator(
+            lebesgue_space, D, kernels=kernels,
+            integration_config=IntegrationConfig(method="trapz", n_points=5000),
+        )
+        G_ref = SOLAOperator(
+            lebesgue_space, D, kernels=kernels,
+            integration_config=IntegrationConfig(method="adaptive"),
+        )
+        assert_allclose(G_fast(f), G_ref(f), rtol=5e-4)
+
+    # ------------------------------------------------------------------
+    # Adaptive path is unchanged (generic path)
+    # ------------------------------------------------------------------
+
+    def test_adaptive_still_works_after_phase4(self, lebesgue_space, unit_domain):
+        """Adaptive method still produces correct results (uses generic path)."""
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[Function(unit_domain, evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0)],
+            integration_config=IntegrationConfig(method="adaptive"),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        assert_allclose(G(f), [0.5], rtol=1e-6)
+
+    # ------------------------------------------------------------------
+    # Non-vectorized callable fallback
+    # ------------------------------------------------------------------
+
+    def test_fast_path_nonvectorized_kernel_fallback(
+        self, lebesgue_space, unit_domain
+    ):
+        """A kernel that is not vectorized falls back gracefully.
+
+        The callable raises TypeError for array input but handles scalars.
+        The _eval_on_mesh helper must catch the failure and use per-point
+        evaluation instead, giving the correct integral.
+        """
+        def scalar_only_kernel(x):
+            if isinstance(x, np.ndarray) and x.ndim > 0:
+                raise TypeError("not vectorized")
+            return 1.0  # constant kernel k=1
+
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[Function(unit_domain, evaluate_callable=scalar_only_kernel)],
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        result = G(f)
+        # G(f)[0] = ∫₀¹ x · 1 dx = 0.5
+        assert_allclose(result, [0.5], rtol=1e-4)
+
+    def test_fast_path_nonvectorized_input_fallback(
+        self, lebesgue_space, unit_domain
+    ):
+        """Input function f that is not vectorized also falls back gracefully."""
+        def scalar_only_f(x):
+            if isinstance(x, np.ndarray) and x.ndim > 0:
+                raise TypeError("not vectorized")
+            return float(x) ** 2  # f(x) = x²
+
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[Function(unit_domain,
+                              evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0)],
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        f = Function(lebesgue_space, evaluate_callable=scalar_only_f)
+        result = G(f)
+        # G(f)[0] = ∫₀¹ x² · 1 dx = 1/3
+        assert_allclose(result, [1.0 / 3.0], rtol=1e-4)
+
+    # ------------------------------------------------------------------
+    # Support handling in the fast path
+    # ------------------------------------------------------------------
+
+    def test_fast_path_disjoint_support_returns_zero(
+        self, lebesgue_space, unit_domain
+    ):
+        """Disjoint-support kernel still returns exactly 0 in the fast path."""
+        k = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.where(
+                (np.asarray(x) >= 0.7) & (np.asarray(x) <= 1.0), 1.0, 0.0
+            ),
+            support=[(0.7, 1.0)],
+        )
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=[k],
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x,
+                     support=[(0.0, 0.3)])
+        result = G(f)
+        assert_allclose(result[0], 0.0, atol=1e-12)
+
+    def test_fast_path_compact_support_correct_value(
+        self, lebesgue_space, unit_domain
+    ):
+        """Compact-support kernel gives correct integral in fast path.
+
+        k supported on [0.4, 0.6], callable is 1.0 inside support.
+        f = 1 → G(f)[0] = ∫_{0.4}^{0.6} 1 dx = 0.2.
+        """
+        def k_callable(x):
+            x_arr = np.asarray(x)
+            return np.where((x_arr >= 0.4) & (x_arr <= 0.6), 1.0, 0.0)
+
+        k = Function(unit_domain, evaluate_callable=k_callable,
+                     support=[(0.4, 0.6)])
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=[k],
+            integration_config=IntegrationConfig(method="simpson", n_points=2000),
+        )
+        f = Function(lebesgue_space,
+                     evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0)
+        result = G(f)
+        assert_allclose(result[0], 0.2, rtol=1e-3)
+
+    def test_fast_path_narrow_support_matches_generic(
+        self, lebesgue_space, unit_domain
+    ):
+        """Narrow compact supports preserve the generic Phase 3 result.
+
+        This guards against losing effective point density by integrating on
+        the full-domain mesh when the support intersection is tiny.
+        """
+        support = [(0.499, 0.501)]
+
+        def narrow_kernel(x):
+            x_arr = np.asarray(x)
+            return np.where(
+                (x_arr >= 0.499) & (x_arr <= 0.501),
+                1.0,
+                0.0,
+            )
+
+        kernel = Function(
+            unit_domain,
+            evaluate_callable=narrow_kernel,
+            support=support,
+        )
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space,
+            D,
+            kernels=[kernel],
+            integration_config=IntegrationConfig(method="simpson", n_points=2000),
+        )
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.ones_like(x)
+            if isinstance(x, np.ndarray)
+            else 1.0,
+            support=support,
+        )
+        fast_result = G(f)
+        generic_result = G._apply_kernels_generic(f)
+        assert_allclose(fast_result, generic_result, rtol=1e-12, atol=1e-12)
+
+    # ------------------------------------------------------------------
+    # Provider-backed kernels in the fast path
+    # ------------------------------------------------------------------
+
+    def test_fast_path_provider_backed_sine(self, lebesgue_space, unit_domain):
+        """Provider-backed kernels give correct results via fast path.
+
+        SineFunctionProvider k_0 = √2 sin(πx).
+        f(x) = sin(πx) → G(f)[0] = ∫₀¹ sin(πx)·√2·sin(πx) dx = √2/2.
+        """
+        from intervalinf.providers import SineFunctionProvider
+        D = EuclideanSpace(3)
+        provider = SineFunctionProvider(unit_domain)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=provider,
+            integration_config=IntegrationConfig(method="simpson", n_points=2000),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: np.sin(np.pi * x))
+        result = G(f)
+        assert_allclose(result[0], np.sqrt(2.0) / 2.0, rtol=1e-4)
+
+    # ------------------------------------------------------------------
+    # Large N_d – smoke test for batched path
+    # ------------------------------------------------------------------
+
+    def test_fast_path_large_nd_shape_and_correctness(
+        self, lebesgue_space, unit_domain
+    ):
+        """N_d=30 batched run: shape is correct and all-zero input gives zeros."""
+        from intervalinf.providers import SineFunctionProvider
+        N_d = 30
+        D = EuclideanSpace(N_d)
+        provider = SineFunctionProvider(unit_domain)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=provider,
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        # f = 0 → G(f) = 0
+        f_zero = Function(lebesgue_space,
+                          evaluate_callable=lambda x: np.zeros_like(x) if isinstance(x, np.ndarray) else 0.0)
+        result = G(f_zero)
+        assert result.shape == (N_d,)
+        assert_allclose(result, np.zeros(N_d), atol=1e-14)
+
+    # ------------------------------------------------------------------
+    # eval_on_mesh helper
+    # ------------------------------------------------------------------
+
+    def test_eval_on_mesh_vectorized_function(self, unit_domain):
+        """_eval_on_mesh returns correct values for a vectorized Function."""
+        f = Function(unit_domain, evaluate_callable=lambda x: x ** 2)
+        xs = np.linspace(0.0, 1.0, 50)
+        result = SOLAOperator._eval_on_mesh(f, xs)
+        assert result.shape == xs.shape
+        assert_allclose(result, xs ** 2, rtol=1e-12)
+
+    def test_eval_on_mesh_nonvectorized_function(self, unit_domain):
+        """_eval_on_mesh fallback works for non-vectorized Function."""
+        def scalar_fn(x):
+            if isinstance(x, np.ndarray) and x.ndim > 0:
+                raise TypeError("not vectorized")
+            return float(x) ** 2
+
+        f = Function(unit_domain, evaluate_callable=scalar_fn)
+        xs = np.linspace(0.0, 1.0, 50)
+        result = SOLAOperator._eval_on_mesh(f, xs)
+        assert result.shape == xs.shape
+        assert_allclose(result, xs ** 2, rtol=1e-12)
+
+    def test_eval_on_mesh_preserves_complex_dtype(self, unit_domain):
+        """Complex-valued functions are not coerced to real in the fast path."""
+        f = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.exp(1j * np.pi * np.asarray(x)),
+        )
+        xs = np.linspace(0.0, 1.0, 25)
+        result = SOLAOperator._eval_on_mesh(f, xs)
+        assert result.shape == xs.shape
+        assert np.iscomplexobj(result)
+        assert_allclose(result, np.exp(1j * np.pi * xs), rtol=1e-12, atol=1e-12)
+
+    def test_fast_path_preserves_complex_forward_values(
+        self, lebesgue_space, unit_domain
+    ):
+        """Fixed-grid batched forward path preserves complex-valued outputs."""
+        D = EuclideanSpace(1)
+        kernel = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.exp(1j * np.pi * np.asarray(x)),
+        )
+        G = SOLAOperator(
+            lebesgue_space,
+            D,
+            kernels=[kernel],
+            integration_config=IntegrationConfig(method="simpson", n_points=2000),
+        )
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.ones_like(x)
+            if isinstance(x, np.ndarray)
+            else 1.0,
+        )
+        result = G(f)
+        expected = np.array([2j / np.pi])
+        assert np.iscomplexobj(result)
+        assert_allclose(result, expected, rtol=1e-4, atol=1e-10)
+
+    def test_support_restricted_fixed_grid_preserves_complex_values(
+        self, lebesgue_space, unit_domain
+    ):
+        """Support-restricted fixed-grid cases preserve complex outputs too."""
+        support = [(0.25, 0.75)]
+        D = EuclideanSpace(1)
+        kernel = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.exp(1j * np.pi * np.asarray(x)),
+            support=support,
+        )
+        G = SOLAOperator(
+            lebesgue_space,
+            D,
+            kernels=[kernel],
+            integration_config=IntegrationConfig(method="simpson", n_points=2000),
+        )
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.ones_like(x)
+            if isinstance(x, np.ndarray)
+            else 1.0,
+            support=support,
+        )
+        result = G(f)
+        generic = G._apply_kernels_generic(f)
+        assert np.iscomplexobj(result)
+        assert_allclose(result, generic, rtol=1e-12, atol=1e-12)
+
+    def test_support_restricted_nonvectorized_complex_kernel(
+        self, lebesgue_space, unit_domain
+    ):
+        """Support-restricted non-vectorized complex kernels keep their phase."""
+        support = [(0.25, 0.75)]
+
+        def scalar_complex_kernel(x):
+            if isinstance(x, np.ndarray) and x.ndim > 0:
+                raise TypeError("not vectorized")
+            return np.exp(1j * np.pi * float(x))
+
+        D = EuclideanSpace(1)
+        kernel = Function(
+            unit_domain,
+            evaluate_callable=scalar_complex_kernel,
+            support=support,
+        )
+        G = SOLAOperator(
+            lebesgue_space,
+            D,
+            kernels=[kernel],
+            integration_config=IntegrationConfig(method="simpson", n_points=2000),
+        )
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.ones_like(x)
+            if isinstance(x, np.ndarray)
+            else 1.0,
+            support=support,
+        )
+        result = G(f)
+        expected = np.array(
+            [
+                (
+                    np.exp(1j * np.pi * 0.75)
+                    - np.exp(1j * np.pi * 0.25)
+                )
+                / (1j * np.pi)
+            ]
+        )
+        assert np.iscomplexobj(result)
+        assert_allclose(result, expected, rtol=1e-4, atol=1e-10)

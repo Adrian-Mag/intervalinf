@@ -199,16 +199,15 @@ class SOLAOperator(LinearOperator):
 
         return kernel
 
-    def _apply_kernels(self, func: Function) -> np.ndarray:
+    def _apply_kernels(self, func: 'Function') -> np.ndarray:
         """
         Apply the kernel functions to a function by integrating their product.
 
         For each kernel k_i, computes $\\int f(x) \\, k_i(x) \\, dx$.
 
-        Support propagation (Phase 3): if both ``func`` and the kernel carry
-        compact-support metadata, the integration range is narrowed to the
-        support intersection.  When the supports are disjoint the result is
-        exactly 0 without evaluating the integrand.
+        Dispatches automatically to the fast batched path for fixed-grid
+        methods (``'simpson'``, ``'trapz'``) and to the generic per-kernel
+        path for adaptive methods.
 
         Parameters
         ----------
@@ -220,7 +219,182 @@ class SOLAOperator(LinearOperator):
         numpy.ndarray
             Vector of data in $\\mathbb{R}^{N_d}$.
         """
-        data = np.zeros(self.N_d)
+        if self.integration.is_fixed_grid:
+            return self._apply_kernels_fixed_grid(func)
+        return self._apply_kernels_generic(func)
+
+    @staticmethod
+    def _eval_on_mesh(func: 'Function', xs: np.ndarray) -> np.ndarray:
+        """
+        Evaluate *func* on a mesh, preserving scalar dtype where possible.
+
+        Tries a vectorised call first; if that raises or returns the wrong
+        shape, falls back to per-point scalar evaluation.  This preserves
+        correctness for any callable, including non-vectorised ones.
+
+        Parameters
+        ----------
+        func : Function
+            The function to evaluate.
+        xs : ndarray, shape (n,)
+            Mesh points.
+
+        Returns
+        -------
+        ndarray, shape (n,)
+        """
+        try:
+            result = func.evaluate(xs, check_domain=False)
+            arr = np.asarray(result)
+            if arr.shape == xs.shape:
+                return arr
+        except Exception:
+            pass
+        # Per-point fallback for non-vectorised callables.
+        return np.asarray(
+            [func.evaluate(float(x), check_domain=False) for x in xs]
+        )
+
+    def _apply_kernels_fixed_grid(self, func: 'Function') -> np.ndarray:
+        """
+        Automatic accelerated forward path for fixed-grid integration methods.
+
+        Builds the quadrature mesh **once** per call, evaluates the input
+        function **once** on the shared mesh, assembles a
+        ``(N_d, n_points)`` kernel matrix, and integrates all products with
+        a single batched ``scipy.integrate.simpson`` or
+        ``trapezoid`` call — avoiding the per-kernel mesh-builds and
+        repeated evaluations of *f* present in the generic path.
+
+        Dispatch conditions
+        -------------------
+        * ``self.integration.is_fixed_grid`` is True (method ``'simpson'``
+          or ``'trapz'``).
+        * Called automatically from :meth:`_apply_kernels`.
+
+        Fallback for non-vectorised callables
+        --------------------------------------
+        :meth:`_eval_on_mesh` tries a vectorised call on the shared mesh
+        first; if that fails (wrong shape, exception), it falls back to a
+        per-point loop.  Correctness is preserved regardless of whether
+        the callable supports array input.
+
+        Support propagation
+        -------------------
+        Kernels whose support is disjoint from *func*'s support are skipped
+        exactly as in the generic path (result is 0 without evaluating the
+        integrand). For non-disjoint compact-support configurations, this
+        method falls back to the generic Phase 3 path for that kernel so the
+        quadrature mesh is still built on the narrowed support intersection.
+
+        Parameters
+        ----------
+        func : Function
+            Function from the domain space.
+
+        Returns
+        -------
+        ndarray, shape (N_d,)
+        """
+        from scipy.integrate import simpson as _simpson
+        try:
+            from scipy.integrate import trapezoid as _trapz
+        except ImportError:
+            # pragma: no cover - scipy < 1.11 fallback
+            from scipy.integrate import trapz as _trapz  # type: ignore
+
+        domain = self._domain.function_domain
+        method = self.integration.method
+        n_points = max(3, self.integration.n_points)
+
+        # ── Build shared mesh once ────────────────────────────────────────
+        xs = np.linspace(domain.a, domain.b, n_points)
+
+        # ── Evaluate f once on the shared mesh ───────────────────────────
+        f_vals = self._eval_on_mesh(func, xs)
+
+        # ── Evaluate all kernels on the shared mesh ───────────────────────
+        # Pre-build a (N_d, n_points) kernel matrix; kernels with disjoint
+        # support vs func are left as zeros and flagged in disjoint_mask.
+        results = [0.0] * self.N_d
+        batched_indices = []
+        batched_rows = []
+        disjoint_mask = np.zeros(self.N_d, dtype=bool)
+
+        for i in range(self.N_d):
+            kernel = self.get_kernel(i)
+            intersected_support = Function._intersect_supports(
+                func.support, kernel.support
+            )
+            if intersected_support == []:
+                # Supports are disjoint → product is identically zero.
+                disjoint_mask[i] = True
+                continue
+
+            # Preserve Phase 3 support-aware quadrature semantics whenever a
+            # genuine compact-support restriction is available.
+            if intersected_support is not None:
+                def product_callable(x, _f=func, _k=kernel):
+                    return _f.evaluate(
+                        x,
+                        check_domain=False,
+                    ) * _k.evaluate(
+                        x,
+                        check_domain=False,
+                    )
+
+                results[i] = domain.integrate(
+                    product_callable,
+                    method=method,
+                    support=intersected_support,
+                    n_points=n_points,
+                )
+                continue
+
+            batched_indices.append(i)
+            batched_rows.append(self._eval_on_mesh(kernel, xs))
+
+        if batched_rows:
+            K_matrix = np.stack(batched_rows, axis=0)
+            P_matrix = f_vals[np.newaxis, :] * K_matrix
+            if method == "simpson":
+                batched_data = np.asarray(_simpson(P_matrix, x=xs, axis=1))
+            else:  # 'trapz'
+                batched_data = np.asarray(_trapz(P_matrix, x=xs, axis=1))
+
+            for index, value in zip(batched_indices, batched_data):
+                results[index] = value
+
+        data = np.asarray(results)
+        # Force disjoint-support entries to exactly 0 (no numerical noise).
+        data[disjoint_mask] = 0.0
+        return data
+
+    def _apply_kernels_generic(self, func: 'Function') -> np.ndarray:
+        """
+        Per-kernel integration loop for adaptive methods and as fallback.
+
+        This is the original integration path, used when
+        ``self.integration.is_adaptive`` is True.  It builds a fresh
+        product callable and calls ``domain.integrate`` for each kernel
+        individually.
+
+        Support propagation (Phase 3): if both *func* and the kernel carry
+        compact-support metadata the integration range is narrowed to the
+        support intersection.  When the supports are disjoint the result
+        is exactly 0 without evaluating the integrand.
+
+        Parameters
+        ----------
+        func : Function
+            Function from the domain space.
+
+        Returns
+        -------
+        numpy.ndarray
+            Vector of data in $\\mathbb{R}^{N_d}$.
+        """
+        results = [0.0] * self.N_d
         domain = self._domain.function_domain
         method = self.integration.method
         n_points = self.integration.n_points
@@ -250,14 +424,14 @@ class SOLAOperator(LinearOperator):
                     check_domain=False,
                 )
 
-            data[i] = domain.integrate(
+            results[i] = domain.integrate(
                 product_callable,
                 method=method,
                 support=intersected_support,
                 n_points=n_points,
             )
 
-        return data
+        return np.asarray(results)
 
     def _reconstruct_function(self, data: np.ndarray) -> Function:
         """

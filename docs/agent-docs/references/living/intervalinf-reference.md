@@ -519,6 +519,10 @@ All spectral operators share the pattern: project $f$ onto eigenfunctions $\{\ph
 | `clear_cache()` | Clears the kernel cache (no-op if `cache_kernels=False`) |
 | `get_cache_info()` | Returns dict with `caching_enabled`, `cached_functions`, `total_functions`, `cache_coverage` |
 | `for_direct_sum(domain, codomain, kernels, ...)` | **Static.** Creates a `RowLinearOperator` with one `SOLAOperator` per subspace; kernels restricted via `provider.restrict(subspace)` or `Function.restrict(subspace)` |
+| `_eval_on_mesh(func, xs)` | **Static.** Evaluates a `Function` on a numpy mesh array with vectorisation fallback for non-vectorised callables; preserves complex dtype |
+| `_apply_kernels(func)` | Dispatch method: routes to `_apply_kernels_fixed_grid` for fixed-grid methods, `_apply_kernels_generic` for adaptive |
+| `_apply_kernels_fixed_grid(func)` | Phase 4 batched path — builds mesh once, evaluates f once, batches full-domain kernels, and falls back per kernel when support restriction must be preserved |
+| `_apply_kernels_generic(func)` | Original per-kernel loop — calls `domain.integrate()` individually for each kernel; used for adaptive methods |
 
 **Phase 3 changes (2026-03-08):**
 - `IntegrationConfig(method='quad')` now works correctly — `'quad'` routes to `scipy.integrate.quad` via the `'adaptive'` alias in `IntervalDomain.integrate`.
@@ -526,14 +530,31 @@ All spectral operators share the pattern: project $f$ onto eigenfunctions $\{\ph
 - `_apply_kernels` and `compute_gram_matrix` now propagate compact-support metadata: when both the input function and the kernel carry compact-support information, the integration range is narrowed to the support intersection.  Disjoint supports return 0 without evaluating the integrand.
 - Reconstructed adjoint functions still loop over kernels on each evaluation (Phase 5/6 scope).
 
-**Integration method support (Phase 3):**
+**Phase 4 changes (2026-03-08):**
+- `_apply_kernels` now dispatches based on `self.integration.is_fixed_grid`:
+  - **Fixed-grid methods** (`'simpson'`, `'trapz'`): automatic batched path via `_apply_kernels_fixed_grid`.
+    - Mesh built **once** per `G(f)` call.
+    - Input function `f` evaluated **once** on the shared mesh.
+    - Full-domain kernels assembled into an `(N_d, n_points)` matrix.
+    - Product matrix integrated in a single `scipy.integrate.simpson` or `trapezoid` call.
+    - Non-vectorised callables handled via `_eval_on_mesh` fallback (per-point loop).
+    - Disjoint-support kernels still skipped without evaluation.
+    - Support-restricted kernels fall back per kernel to the Phase 3 generic path so narrowed-support quadrature resolution is preserved.
+    - Complex-valued fixed-grid evaluations are preserved end to end; no silent real downcast in the batched or support-restricted fixed-grid paths.
+  - **Adaptive methods** (`'adaptive'`, `'quad'`): unchanged generic per-kernel loop via `_apply_kernels_generic`.
+- Static helper `_eval_on_mesh(func, xs)` added: tries vectorised `Function.evaluate(xs)` first; on shape mismatch or exception, falls back to per-point evaluation while preserving scalar dtype.
+- `IntervalDomain.integrate` fixed-grid methods (`'simpson'`, `'trapz'`) now preserve complex dtype in both vectorised and scalar-fallback evaluation paths.
+- Measured speedup over `_apply_kernels_generic` (same method, n_points=1000): about 2–5x for N_d 5–200 on the current benchmark.
+- Public API and semantics unchanged: operator remains "continuous operator evaluated numerically".
 
-| `IntegrationConfig.method` | Behaviour | `is_fixed_grid` | Phase 4 batchable |
+**Integration method support:**
+
+| `IntegrationConfig.method` | Behaviour | `is_fixed_grid` | Forward path |
 |---|---|---|---|
-| `'simpson'` | Composite Simpson on uniform mesh | True | Yes |
-| `'trapz'` | Composite trapezoidal on uniform mesh | True | Yes |
-| `'adaptive'` | `scipy.integrate.quad` error-controlled | False | No |
-| `'quad'` | Alias for `'adaptive'` (legacy name) | False | No |
+| `'simpson'` | Composite Simpson on uniform mesh | True | `_apply_kernels_fixed_grid` (batched) |
+| `'trapz'` | Composite trapezoidal on uniform mesh | True | `_apply_kernels_fixed_grid` (batched) |
+| `'adaptive'` | `scipy.integrate.quad` error-controlled | False | `_apply_kernels_generic` (per-kernel) |
+| `'quad'` | Alias for `'adaptive'` (legacy name) | False | `_apply_kernels_generic` (per-kernel) |
 
 ---
 

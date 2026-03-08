@@ -297,7 +297,7 @@ class IntervalDomain:
                     vectorized=vectorized,
                     **kwargs,
                 )
-            return float(total)
+            return total
 
         # Single interval integration
         if support is None:
@@ -325,11 +325,7 @@ class IntervalDomain:
             if vectorized is True:
                 return np.asarray(f(xs_vals))
             if vectorized is False:
-                return np.fromiter(
-                    (f(x) for x in xs_vals),
-                    dtype=float,
-                    count=xs_vals.size,
-                )
+                return np.asarray([f(x) for x in xs_vals])
             try:
                 out = f(xs_vals)
                 arr = np.asarray(out)
@@ -339,24 +335,20 @@ class IntervalDomain:
                     )
                 return arr
             except Exception:
-                return np.fromiter(
-                    (f(x) for x in xs_vals),
-                    dtype=float,
-                    count=xs_vals.size,
-                )
+                return np.asarray([f(x) for x in xs_vals])
 
         ys = eval_mesh(xs)
 
         if method == "simpson":
             from scipy.integrate import simpson
-            return float(simpson(ys, x=xs))
+            return simpson(ys, x=xs)
 
         if method == "trapz":
             try:
                 from scipy.integrate import trapezoid as trapz
             except ImportError:
                 from scipy.integrate import trapz  # type: ignore
-            return float(trapz(ys, x=xs))
+            return trapz(ys, x=xs)
 
         msg = (
             f"Unknown integration method: {method!r}. Valid methods: "

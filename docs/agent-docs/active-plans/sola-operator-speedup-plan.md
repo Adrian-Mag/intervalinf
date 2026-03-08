@@ -189,7 +189,7 @@ more ambitious acceleration paths.
 
 ## Phase 4: Automatic batched fixed-grid forward path
 
-**Status:** ⬜ Not started
+**Status:** ✅ Complete (2026-03-08)
 
 **Objective:** Introduce an automatic accelerated path for reusable fixed-grid integration
 methods such as `simpson` and `trapz`, while preserving a generic fallback path for cases
@@ -215,6 +215,23 @@ that do not fit the accelerated assumptions.
 - Forward results match the Phase 2 baseline under the same quadrature rule.
 - No regression in provider-backed cases or in non-vectorized fallback cases.
 - Benchmarks show isolated operator-level improvements before moving on to deeper caching.
+
+**Outcome:**
+- Added `_eval_on_mesh` static helper: tries vectorised `Function.evaluate(xs)`, falls
+  back to per-point evaluation on shape-mismatch or exception, and preserves dtype.
+- Added `_apply_kernels_fixed_grid`: mesh built once, f evaluated once, full-domain
+  kernels batched into a shared matrix, single `scipy.integrate.simpson`/`trapezoid`
+  call for the batched subset.
+- Added `_apply_kernels_generic`: renamed original per-kernel loop for adaptive methods.
+- `_apply_kernels` dispatches automatically via `is_fixed_grid`.
+- Disjoint-support early exit preserved; support-restricted kernels fall back to the
+  Phase 3 generic path so narrowed-support quadrature semantics are preserved.
+- Fixed-grid `IntervalDomain.integrate` now preserves complex dtype for `simpson` and
+  `trapz`, including scalar fallback evaluation paths used by support-restricted kernels.
+- 20 new tests added in `TestFastPathFixedGrid`; focused SOLA suite now has 80 passing tests.
+- New benchmark: `intervalinf/rough_work/benchmark_phase4.py`.
+- Measured speedup over `_apply_kernels_generic`: about 2-5x for N_d 5-200.
+- Updated living reference with new method table, dispatch logic, and speedup figures.
 
 ---
 
@@ -289,3 +306,4 @@ accurate map of the operator.
 | 2026-03-08 | Phase 1 | Completed implementation and dependency audit; documented exact forward/adjoint call graph, preserved invariants, current inefficiencies, constraints, and recommended Phase 2 benchmark surfaces |
 | 2026-03-08 | Phase 2 | Added dedicated SOLA baseline tests, a rough-work benchmark harness, and living-reference updates; review approved after minor cleanup |
 | 2026-03-08 | Phase 3 | Resolved `quad`/`adaptive` naming mismatch; added `is_fixed_grid`/`is_adaptive` properties and module-level method-set constants; eliminated `Function` wrapper allocation in `_apply_kernels`; added support-propagation in `_apply_kernels` and `compute_gram_matrix`; 12 new tests added (60 SOLA / 362 total) |
+| 2026-03-08 | Phase 4 | Added `_eval_on_mesh`, `_apply_kernels_fixed_grid`, `_apply_kernels_generic`; automatic dispatch in `_apply_kernels`; support-aware generic fallback for narrowed compact supports; fixed-grid complex dtype preservation in `SOLAOperator` and `IntervalDomain.integrate`; non-vectorised callable fallback; 20 new tests (80 SOLA passing); new benchmark `benchmark_phase4.py`; about 2–5x speedup over per-kernel loop |
