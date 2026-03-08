@@ -237,7 +237,7 @@ that do not fit the accelerated assumptions.
 
 ## Phase 5: Reuse and caching for repeated workloads
 
-**Status:** ⬜ Not started
+**Status:** ✅ Complete (2026-03-08)
 
 **Objective:** Exploit the fact that iterative inverse problems reuse the same operator,
 kernels, and integration settings many times.
@@ -260,6 +260,24 @@ kernels, and integration settings many times.
 - repeated `G(f)` calls with stable settings
 - repeated downstream calls inside PLI/DLI workflows
 - compact-support versus global-support kernel families
+
+**Outcome:**
+- `_shared_mesh: Optional[np.ndarray]` — persistent mesh, built once via `np.linspace(a, b, n_points)` on
+  first `_apply_kernels_fixed_grid` call. Never cleared; depends only on immutable constructor params.
+- `_kernel_eval_cache: Optional[dict]` — maps kernel index → `ndarray(n_points,)`. Active only when
+  `cache_kernels=True`. Populated for kernels taking the batched path; skipped for the generic fallback.
+  Cache semantics: a kernel is NOT cached iff BOTH the input function and that kernel have overlapping
+  compact-support metadata (the `_intersect_supports` generic path). Disjoint: skipped entirely.
+- `_get_or_build_mesh()` — private lazy mesh builder.
+- `clear_mesh_cache()` — new public method; clears `_kernel_eval_cache` only (`_shared_mesh` preserved).
+- `clear_cache()` — now also calls `clear_mesh_cache()` so all caches are invalidated together.
+- `get_cache_info()` — new keys: `shared_mesh_built`, `kernel_eval_cache_entries`.
+- Memory footprint: N_d × 8 KB at n_points=1000 (e.g. 200 × 8 KB = 1.6 MB). Justified for workloads
+  with hundreds of repeated forward calls.
+- 23 new tests added in `TestPhase5ReuseAndCaching`; SOLA suite is now 103 tests.
+- New benchmark: `intervalinf/rough_work/benchmark_phase5.py`.
+- Measured speedup for repeated workloads (N_REPS=50, n_points=1000): 1.6–3.4x across N_d 5–200.
+- Deferred: coefficient-space fast path for Lebesgue functions (scope for Phase 6 or later).
 
 ---
 
@@ -307,3 +325,4 @@ accurate map of the operator.
 | 2026-03-08 | Phase 2 | Added dedicated SOLA baseline tests, a rough-work benchmark harness, and living-reference updates; review approved after minor cleanup |
 | 2026-03-08 | Phase 3 | Resolved `quad`/`adaptive` naming mismatch; added `is_fixed_grid`/`is_adaptive` properties and module-level method-set constants; eliminated `Function` wrapper allocation in `_apply_kernels`; added support-propagation in `_apply_kernels` and `compute_gram_matrix`; 12 new tests added (60 SOLA / 362 total) |
 | 2026-03-08 | Phase 4 | Added `_eval_on_mesh`, `_apply_kernels_fixed_grid`, `_apply_kernels_generic`; automatic dispatch in `_apply_kernels`; support-aware generic fallback for narrowed compact supports; fixed-grid complex dtype preservation in `SOLAOperator` and `IntervalDomain.integrate`; non-vectorised callable fallback; 20 new tests (80 SOLA passing); new benchmark `benchmark_phase4.py`; about 2–5x speedup over per-kernel loop |
+| 2026-03-08 | Phase 5 | Added `_shared_mesh`, `_kernel_eval_cache`, `_get_or_build_mesh()`; updated `_apply_kernels_fixed_grid` batched loop to cache/reuse kernel evals; added `clear_mesh_cache()`; updated `clear_cache()` and `get_cache_info()`; 23 new tests in `TestPhase5ReuseAndCaching` (103 SOLA passing); new benchmark `benchmark_phase5.py`; 1.6–3.4x speedup for repeated workloads |

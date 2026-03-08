@@ -110,6 +110,22 @@ class SOLAOperator(LinearOperator):
         # Store integration config
         self.integration = integration_config
 
+        # Phase 5: shared mesh reuse.
+        # The mesh depends only on domain bounds and n_points, both immutable
+        # after construction, so it is safe to build once and reuse forever.
+        self._shared_mesh: Optional[np.ndarray] = None
+
+        # Phase 5: kernel mesh evaluation cache.
+        # Maps kernel index → ndarray of values on the shared fixed-grid mesh.
+        # Populated only for full-domain kernels (support is None on both the
+        # kernel and the input function); compact-support kernels always fall
+        # back to the generic path and are never stored here.
+        # Only active when cache_kernels=True so that provider-backed kernels
+        # whose Function objects are also cached remain the source of truth.
+        self._kernel_eval_cache: Optional[dict] = (
+            {} if cache_kernels else None
+        )
+
         self._initialize_kernels(kernels)
 
         super().__init__(
@@ -255,16 +271,46 @@ class SOLAOperator(LinearOperator):
             [func.evaluate(float(x), check_domain=False) for x in xs]
         )
 
+    def _get_or_build_mesh(self) -> np.ndarray:
+        """Return the shared fixed-grid mesh, building it lazily on first call.
+
+        The mesh depends only on domain bounds and ``integration.n_points``,
+        both of which are immutable after construction, so it is safe to
+        build once and reuse indefinitely across repeated ``G(f)`` calls.
+
+        Returns
+        -------
+        ndarray, shape (n_points,)
+        """
+        if self._shared_mesh is None:
+            domain = self._domain.function_domain
+            n_points = max(3, self.integration.n_points)
+            self._shared_mesh = np.linspace(domain.a, domain.b, n_points)
+        return self._shared_mesh
+
     def _apply_kernels_fixed_grid(self, func: 'Function') -> np.ndarray:
         """
         Automatic accelerated forward path for fixed-grid integration methods.
 
-        Builds the quadrature mesh **once** per call, evaluates the input
-        function **once** on the shared mesh, assembles a
-        ``(N_d, n_points)`` kernel matrix, and integrates all products with
-        a single batched ``scipy.integrate.simpson`` or
-        ``trapezoid`` call — avoiding the per-kernel mesh-builds and
-        repeated evaluations of *f* present in the generic path.
+        Phase 4: builds the quadrature mesh once per call (Phase 5: reused
+        across calls), evaluates the input function once on the shared mesh,
+        assembles a ``(N_d, n_points)`` kernel matrix, and integrates all
+        products with a single batched ``scipy.integrate.simpson`` or
+        ``trapezoid`` call.
+
+        Phase 5 additions
+        -----------------
+        * **Mesh reuse**: the shared mesh (xs) is built once at first call and
+          reused on all subsequent calls via :meth:`_get_or_build_mesh`.  The
+          mesh depends only on immutable construction parameters so no
+          invalidation is needed.
+        * **Kernel mesh evaluation cache**: when ``cache_kernels=True``, the
+          per-kernel mesh evaluations ``k_i(xs)`` are stored in
+          ``_kernel_eval_cache`` after the first forward call and reused on
+          all subsequent calls, eliminating repeated kernel evaluations in
+          iterative workloads. Only full-domain (non-compact-support) kernels
+          are cached here; support-restricted kernels still fall back per
+          kernel to the Phase 3 generic path.
 
         Dispatch conditions
         -------------------
@@ -307,8 +353,8 @@ class SOLAOperator(LinearOperator):
         method = self.integration.method
         n_points = max(3, self.integration.n_points)
 
-        # ── Build shared mesh once ────────────────────────────────────────
-        xs = np.linspace(domain.a, domain.b, n_points)
+        # ── Phase 5: reuse shared mesh ────────────────────────────────────
+        xs = self._get_or_build_mesh()
 
         # ── Evaluate f once on the shared mesh ───────────────────────────
         f_vals = self._eval_on_mesh(func, xs)
@@ -332,7 +378,9 @@ class SOLAOperator(LinearOperator):
                 continue
 
             # Preserve Phase 3 support-aware quadrature semantics whenever a
-            # genuine compact-support restriction is available.
+            # genuine compact-support restriction is available.  These kernels
+            # are NOT stored in the kernel eval cache because the correct
+            # integration range depends on func.support which varies per call.
             if intersected_support is not None:
                 def product_callable(x, _f=func, _k=kernel):
                     return _f.evaluate(
@@ -351,8 +399,18 @@ class SOLAOperator(LinearOperator):
                 )
                 continue
 
+            # Full-domain kernel: check kernel eval cache before evaluating.
+            # Phase 5: when cache_kernels=True, k_i(xs) is stored after the
+            # first evaluation and reused on all subsequent forward calls.
+            if self._kernel_eval_cache is not None and i in self._kernel_eval_cache:
+                k_vals = self._kernel_eval_cache[i]
+            else:
+                k_vals = self._eval_on_mesh(kernel, xs)
+                if self._kernel_eval_cache is not None:
+                    self._kernel_eval_cache[i] = k_vals
+
             batched_indices.append(i)
-            batched_rows.append(self._eval_on_mesh(kernel, xs))
+            batched_rows.append(k_vals)
 
         if batched_rows:
             K_matrix = np.stack(batched_rows, axis=0)
@@ -523,30 +581,76 @@ class SOLAOperator(LinearOperator):
 
         return gram
 
+    def clear_mesh_cache(self):
+        """Clear the kernel mesh evaluation cache.
+
+        Forces re-evaluation of all kernel functions on the shared mesh at
+        the next forward call.  The shared mesh array (xs) itself is **not**
+        cleared because it depends only on immutable construction parameters
+        (domain bounds and ``n_points``) and never needs rebuilding.
+
+        Use this when kernel callables may have changed since the last call
+        while the operator object is reused across different workloads.  Note
+        that ``clear_cache()`` also calls this method, so clearing the kernel
+        object cache automatically invalidates mesh evaluations too.
+
+        Has no effect when ``cache_kernels=False``.
+        """
+        if self._kernel_eval_cache is not None:
+            self._kernel_eval_cache.clear()
+
     def clear_cache(self):
-        """Clear the function cache if caching is enabled."""
+        """Clear the kernel object cache and kernel mesh evaluation cache.
+
+        After this call, the next ``G(f)`` invocation re-fetches all kernels
+        from the provider and re-evaluates them on the shared mesh, restoring
+        a fully fresh state.  The shared mesh array itself is preserved.
+        """
         if self.cache_kernels and self._kernels_cache is not None:
             self._kernels_cache.clear()
+        # Phase 5: also clear cached kernel mesh evaluations so stale values
+        # are not retained after the kernel objects themselves are evicted.
+        self.clear_mesh_cache()
 
     def get_cache_info(self) -> dict:
         """
-        Get information about the function cache.
+        Get information about the kernel and mesh caches.
 
         Returns
         -------
         dict
-            Cache statistics including size and hit rate
+            Cache statistics.  Keys present in all cases:
+
+            - ``caching_enabled``: whether ``cache_kernels=True``.
+            - ``shared_mesh_built``: whether the shared fixed-grid mesh has
+              been constructed (happens on the first fixed-grid forward call).
+
+            Additional keys when ``caching_enabled`` is ``True``:
+
+            - ``cached_functions``: number of kernel ``Function`` objects
+              held in the kernel object cache.
+            - ``total_functions``: ``N_d`` (total number of kernels).
+            - ``cache_coverage``: fraction of kernels cached as objects.
+            - ``kernel_eval_cache_entries``: number of kernel mesh evaluations
+              currently stored (Phase 5).  Each entry is an ndarray of shape
+              ``(n_points,)`` for one full-domain kernel.
         """
+        info: dict = {
+            "caching_enabled": self.cache_kernels,
+            "shared_mesh_built": self._shared_mesh is not None,
+        }
         if not self.cache_kernels:
-            return {"caching_enabled": False}
+            return info
 
         assert self._kernels_cache is not None
-        return {
-            "caching_enabled": True,
+        assert self._kernel_eval_cache is not None
+        info.update({
             "cached_functions": len(self._kernels_cache),
             "total_functions": self.N_d,
-            "cache_coverage": len(self._kernels_cache) / self.N_d
-        }
+            "cache_coverage": len(self._kernels_cache) / self.N_d,
+            "kernel_eval_cache_entries": len(self._kernel_eval_cache),
+        })
+        return info
 
     def __str__(self) -> str:
         """String representation of the SOLA operator."""

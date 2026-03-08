@@ -516,8 +516,9 @@ All spectral operators share the pattern: project $f$ onto eigenfunctions $\{\ph
 | `_mapping(f)` | Applies $G$: returns `ndarray` of shape `(N,)` |
 | `_dual_mapping(yp)` | Returns `LinearFormKernel` reconstructed from data; adjoint is $G^*(y) = \sum_i y_i k_i(x)$ |
 | `compute_gram_matrix()` | Returns $N \times N$ matrix $G_{ij} = \int k_i(x)k_j(x)\,dx$ |
-| `clear_cache()` | Clears the kernel cache (no-op if `cache_kernels=False`) |
-| `get_cache_info()` | Returns dict with `caching_enabled`, `cached_functions`, `total_functions`, `cache_coverage` |
+| `clear_cache()` | Clears `_kernels_cache` AND `_kernel_eval_cache`; `_shared_mesh` is preserved |
+| `clear_mesh_cache()` | Clears only `_kernel_eval_cache`; `_shared_mesh` is preserved (no-op if `cache_kernels=False`) |
+| `get_cache_info()` | Returns dict with `caching_enabled`, `shared_mesh_built`; when enabled also `cached_functions`, `total_functions`, `cache_coverage`, `kernel_eval_cache_entries` |
 | `for_direct_sum(domain, codomain, kernels, ...)` | **Static.** Creates a `RowLinearOperator` with one `SOLAOperator` per subspace; kernels restricted via `provider.restrict(subspace)` or `Function.restrict(subspace)` |
 | `_eval_on_mesh(func, xs)` | **Static.** Evaluates a `Function` on a numpy mesh array with vectorisation fallback for non-vectorised callables; preserves complex dtype |
 | `_apply_kernels(func)` | Dispatch method: routes to `_apply_kernels_fixed_grid` for fixed-grid methods, `_apply_kernels_generic` for adaptive |
@@ -529,6 +530,15 @@ All spectral operators share the pattern: project $f$ onto eigenfunctions $\{\ph
 - `_apply_kernels` no longer allocates a `Function` wrapper per kernel; it calls `domain.integrate()` directly.
 - `_apply_kernels` and `compute_gram_matrix` now propagate compact-support metadata: when both the input function and the kernel carry compact-support information, the integration range is narrowed to the support intersection.  Disjoint supports return 0 without evaluating the integrand.
 - Reconstructed adjoint functions still loop over kernels on each evaluation (Phase 5/6 scope).
+
+**Phase 5 changes (2026-03-08):** Kernel-eval caching for repeated workloads.
+- **`_shared_mesh: Optional[np.ndarray]`** — lazy-built on first `_apply_kernels_fixed_grid` call via `np.linspace(a, b, n_points)`. Never cleared; depends only on immutable constructor parameters (domain bounds + n_points). Also set on `_apply_kernels_generic` path — not used there, but ensures `get_cache_info()` reports `shared_mesh_built` correctly.
+- **`_kernel_eval_cache: Optional[dict]`** — `None` when `cache_kernels=False`; otherwise a dict mapping kernel index → `ndarray` of shape `(n_points,)` (kernel values on the shared mesh). Populated **only** on the batched path. Cleared by `clear_cache()` and `clear_mesh_cache()`; `_shared_mesh` is never cleared.
+- **`_get_or_build_mesh()`** — private helper; builds and stores `_shared_mesh` on first call, returns it on subsequent calls.
+- **Batched-path loop** now checks eval cache before calling `_eval_on_mesh(kernel, xs)`; stores result if not present.
+- **Cache semantics:** A kernel is cached iff it goes through the batched path. A kernel goes through the generic fallback (NOT cached) only when `_intersect_supports(func.support, kernel.support)` returns a non-`None`, non-empty list (i.e. BOTH function and kernel have compact-support metadata that overlaps). Disjoint supports → kernel skipped entirely (also not cached).
+- **Memory:** each entry ≈ 8 KB at n_points=1000; N_d entries ≈ N_d × 8 KB (e.g. 200 × 8 KB = 1.6 MB).
+- **Measured speedup** for repeated workloads (N_REPS=50 distinct input functions, n_points=1000): 1.6x–3.4x across N_d 5–200.
 
 **Phase 4 changes (2026-03-08):**
 - `_apply_kernels` now dispatches based on `self.integration.is_fixed_grid`:
@@ -884,7 +894,7 @@ Number of points scales with `IntegrationConfig.n_points` (default 1000); `Lebes
 | `tests/spaces/test_sobolev.py` | `Sobolev`: init with `None` Laplacian (deferred placeholder), import guards, `SobolevSpaceDirectSum`, docstring existence |
 | `tests/spaces/test_forms.py` | `LinearFormKernel`: init with kernel/components/mapping, exactly-one constraint, parallel config, lazy `components`, direct sum evaluation |
 | `tests/operators/test_operators.py` | Import tests for all operator classes; `Laplacian` creation (spectral and FD methods); basic application tests; eigenvalue/eigenfunction retrieval |
-| `tests/operators/test_sola.py` | **SOLAOperator baseline test suite (Phase 2).** 48 tests covering: analytic forward-integral checks (constant/polynomial/trig kernels with analytic reference values); linearity; adjoint-consistency $\langle G(f), y\rangle_D = \langle f, G^*(y)\rangle_M$; provider-backed kernels (`SineFunctionProvider`, `BumpFunctionProvider`, `CosineFunctionProvider`); direct `Function`-list and callable-list kernels; `cache_kernels` behavior and `get_cache_info`/`clear_cache` accessors; integration-method coverage (simpson, trapz, and baseline-recording of the `'quad'` naming error); compact-support locality with bump kernels; Gram-matrix symmetry and sine-basis orthonormality; `for_direct_sum` construction and output shape; miscellaneous robustness (str repr, `get_kernels`, domain/codomain dims, large $N_d$ smoke test). |
+| `tests/operators/test_sola.py` | **SOLAOperator test suite (Phases 2–5).** 103 tests. Phase 2 coverage: analytic forward-integral checks (constant/polynomial/trig kernels with analytic reference values); linearity; adjoint-consistency $\langle G(f), y\rangle_D = \langle f, G^*(y)\rangle_M$; provider-backed kernels (`SineFunctionProvider`, `BumpFunctionProvider`, `CosineFunctionProvider`); direct `Function`-list and callable-list kernels; `cache_kernels` behavior and `get_cache_info`/`clear_cache` accessors; integration-method coverage; compact-support locality; Gram-matrix symmetry; `for_direct_sum`. Phase 3–4: fixed-grid batched path; complex-valued kernels; adaptive vs fixed dispatch. Phase 5 (`TestPhase5ReuseAndCaching`): shared mesh unbuilt→built→same-object; `shared_mesh_built` in `get_cache_info`; eval cache `None` when disabled; cache populated/correct shape after call; cached == uncached bitwise; provider-backed caching; support-overlap kernel excluded from eval cache; `clear_cache` empties entries; `clear_mesh_cache` clears eval cache but preserves shared mesh; repeated N_REPS=50 workload smoke test. |
 | `tests/providers/test_standalone_providers.py` | Trigonometric, FEM, smooth, wavelet, step, and data providers in standalone (domain-only) mode: `is_standalone`, `function_domain`, evaluation correctness for sine functions |
 
 **Testing patterns:**
@@ -903,3 +913,4 @@ These scripts are NOT part of the test suite; they measure runtime performance a
 |---|---|
 | `rough_work/benchmark_dli_solvers.py` | End-to-end DLI convex optimisation benchmark across `ProximalBundleMethod`, `LevelBundleMethod`, `ChambollePockSolver`, `SmoothedLBFGSSolver` with `SOLAOperator`-backed problems; measures per-solver wall time and convergence. |
 | `rough_work/benchmark_sola_baseline.py` | **SOLAOperator baseline benchmark (Phase 2).** Separates pure SOLA microbenchmarks from downstream workflow timings. Measures forward `G(f)`, adjoint `G*(y)`, and `DualMasterCostFunction.value_and_subgradient(lam)` across a parameter matrix using integration method (`simpson`, `trapz`), `n_points` (200–2000), $N_d$ (1–200), $N_p$ (0–20 for downstream hotspot scenarios), and kernel source (`sine_provider`, `callable`, `bump_provider`). The ambient `Lebesgue` basis dimension is held fixed as an implementation detail rather than swept as a primary SOLA axis. Outputs CSV to stdout. Usage: `conda run -n inferences3 python intervalinf/rough_work/benchmark_sola_baseline.py > results.csv` |
+| `rough_work/benchmark_phase5.py` | **Phase 5 repeated-workload benchmark.** Compares `cache_kernels=True` (warm calls reuse `_kernel_eval_cache`) vs `cache_kernels=False` (cold, recomputes evals every call) over N_REPS=50 distinct input functions. Sweeps $N_d$ ∈ {5,10,20,50,100,200} with n_points=1000 (Simpson). Measured speedup: 1.6x–3.4x. Usage: `conda run -n inferences3 python intervalinf/rough_work/benchmark_phase5.py` |

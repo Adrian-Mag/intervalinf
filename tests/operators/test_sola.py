@@ -1343,3 +1343,494 @@ class TestFastPathFixedGrid:
         )
         assert np.iscomplexobj(result)
         assert_allclose(result, expected, rtol=1e-4, atol=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# 14. Phase 5 – Reuse and caching for repeated workloads
+# ---------------------------------------------------------------------------
+
+class TestPhase5ReuseAndCaching:
+    """
+    Tests for the Phase 5 shared mesh reuse and kernel mesh evaluation cache.
+
+    Design rules under test
+    -----------------------
+    1. The shared fixed-grid mesh (xs) is built once on the first
+       ``_apply_kernels_fixed_grid`` call and reused on all subsequent calls.
+       It is never cleared; it depends only on immutable construction params.
+    2. When ``cache_kernels=True``, per-kernel mesh evaluations ``k_i(xs)``
+       are stored in ``_kernel_eval_cache`` on first use and reused on all
+       subsequent calls, eliminating repeated kernel evaluations.
+    3. Kernel mesh evaluations are NOT cached when ``cache_kernels=False``.
+    4. Compact-support kernels (generic-path fallback) are never stored in
+       ``_kernel_eval_cache``.
+    5. ``clear_cache()`` clears both ``_kernels_cache`` and
+       ``_kernel_eval_cache``; next call re-evaluates from scratch.
+    6. ``clear_mesh_cache()`` clears ``_kernel_eval_cache`` only; the shared
+       mesh (``_shared_mesh``) is preserved.
+    7. ``get_cache_info()`` reports both the shared-mesh state and the count
+       of kernel mesh eval entries currently stored.
+    8. Caching must not change numerical results; all G(f) calls give
+       bitwise-identical outputs regardless of cache state.
+    """
+
+    # ------------------------------------------------------------------
+    # 1. Shared mesh reuse
+    # ------------------------------------------------------------------
+
+    def test_mesh_unbuilt_before_first_call(self, lebesgue_space, unit_domain):
+        """_shared_mesh is None before any forward call."""
+        D = EuclideanSpace(2)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[
+                Function(unit_domain, evaluate_callable=lambda x: x),
+                Function(unit_domain, evaluate_callable=lambda x: 1 - x),
+            ],
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        assert G._shared_mesh is None
+
+    def test_mesh_built_after_first_call(self, lebesgue_space, unit_domain):
+        """_shared_mesh is populated after the first fixed-grid forward call."""
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[Function(unit_domain, evaluate_callable=lambda x: x)],
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        _ = G(f)
+        assert G._shared_mesh is not None
+        assert G._shared_mesh.shape == (500,)
+
+    def test_mesh_same_object_across_calls(self, lebesgue_space, unit_domain):
+        """The shared mesh is the identical array object on repeated calls."""
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[Function(unit_domain, evaluate_callable=lambda x: x)],
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        _ = G(f)
+        mesh_id_first = id(G._shared_mesh)
+        _ = G(f)
+        assert id(G._shared_mesh) == mesh_id_first, \
+            "Shared mesh should be the same object on every call"
+
+    def test_mesh_not_built_for_adaptive_method(self, lebesgue_space, unit_domain):
+        """Adaptive method never builds the shared mesh."""
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[Function(unit_domain, evaluate_callable=lambda x: x)],
+            integration_config=IntegrationConfig(method="adaptive"),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        _ = G(f)
+        assert G._shared_mesh is None
+
+    def test_mesh_correct_bounds(self, lebesgue_space, unit_domain):
+        """Shared mesh spans [0, 1] with exactly n_points points."""
+        n_pts = 301
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[Function(unit_domain, evaluate_callable=lambda x: x)],
+            integration_config=IntegrationConfig(method="simpson", n_points=n_pts),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        _ = G(f)
+        xs = G._shared_mesh
+        assert xs[0] == pytest.approx(0.0)
+        assert xs[-1] == pytest.approx(1.0)
+        assert len(xs) == n_pts
+
+    def test_get_cache_info_reports_mesh_not_built(self, lebesgue_space, unit_domain):
+        """get_cache_info reports shared_mesh_built=False before any call."""
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[Function(unit_domain, evaluate_callable=lambda x: x)],
+        )
+        info = G.get_cache_info()
+        assert info["shared_mesh_built"] is False
+
+    def test_get_cache_info_reports_mesh_built_after_call(
+        self, lebesgue_space, unit_domain
+    ):
+        """get_cache_info reports shared_mesh_built=True after a forward call."""
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[Function(unit_domain, evaluate_callable=lambda x: x)],
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        _ = G(f)
+        info = G.get_cache_info()
+        assert info["shared_mesh_built"] is True
+
+    # ------------------------------------------------------------------
+    # 2. Kernel mesh evaluation cache – disabled path
+    # ------------------------------------------------------------------
+
+    def test_kernel_eval_cache_none_when_caching_disabled(
+        self, lebesgue_space, unit_domain
+    ):
+        """_kernel_eval_cache is None when cache_kernels=False."""
+        D = EuclideanSpace(2)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[
+                Function(unit_domain, evaluate_callable=lambda x: x),
+                Function(unit_domain, evaluate_callable=lambda x: 1 - x),
+            ],
+            cache_kernels=False,
+        )
+        assert G._kernel_eval_cache is None
+
+    def test_kernel_eval_cache_stays_none_after_call_when_disabled(
+        self, lebesgue_space, unit_domain
+    ):
+        """_kernel_eval_cache remains None after a forward call when cache_kernels=False."""
+        D = EuclideanSpace(2)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[
+                Function(unit_domain, evaluate_callable=lambda x: x),
+                Function(unit_domain, evaluate_callable=lambda x: 1 - x),
+            ],
+            cache_kernels=False,
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        _ = G(f)
+        assert G._kernel_eval_cache is None
+
+    # ------------------------------------------------------------------
+    # 3. Kernel mesh evaluation cache – enabled path
+    # ------------------------------------------------------------------
+
+    def test_kernel_eval_cache_empty_dict_before_first_call(
+        self, lebesgue_space, unit_domain
+    ):
+        """_kernel_eval_cache is an empty dict before any forward call."""
+        D = EuclideanSpace(2)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[
+                Function(unit_domain, evaluate_callable=lambda x: x),
+                Function(unit_domain, evaluate_callable=lambda x: 1 - x),
+            ],
+            cache_kernels=True,
+        )
+        assert G._kernel_eval_cache == {}
+
+    def test_kernel_eval_cache_populated_after_forward_call(
+        self, lebesgue_space, unit_domain
+    ):
+        """After a fixed-grid forward call, full-domain kernels are cached."""
+        D = EuclideanSpace(2)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[
+                Function(unit_domain, evaluate_callable=lambda x: x),
+                Function(unit_domain, evaluate_callable=lambda x: 1 - x),
+            ],
+            cache_kernels=True,
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        _ = G(f)
+        info = G.get_cache_info()
+        assert info["kernel_eval_cache_entries"] == 2
+
+    def test_kernel_eval_cache_entries_shape(self, lebesgue_space, unit_domain):
+        """Cached kernel eval entries are ndarrays with shape (n_points,)."""
+        n_pts = 300
+        D = EuclideanSpace(2)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[
+                Function(unit_domain, evaluate_callable=lambda x: x),
+                Function(unit_domain, evaluate_callable=lambda x: 1 - x),
+            ],
+            cache_kernels=True,
+            integration_config=IntegrationConfig(method="simpson", n_points=n_pts),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        _ = G(f)
+        assert G._kernel_eval_cache is not None
+        for idx, arr in G._kernel_eval_cache.items():
+            assert isinstance(arr, np.ndarray)
+            assert arr.shape == (n_pts,), \
+                f"kernel {idx}: expected shape ({n_pts},), got {arr.shape}"
+
+    def test_cached_and_uncached_forward_results_identical(
+        self, lebesgue_space, unit_domain
+    ):
+        """Pre- and post-cache warm calls must give bitwise-identical outputs."""
+        D = EuclideanSpace(3)
+        kernels = [
+            Function(unit_domain, evaluate_callable=lambda x: np.sin(np.pi * x)),
+            Function(unit_domain, evaluate_callable=lambda x: x),
+            Function(unit_domain, evaluate_callable=lambda x: x * (1 - x)),
+        ]
+        cfg = IntegrationConfig(method="simpson", n_points=2000)
+        f = Function(lebesgue_space, evaluate_callable=lambda x: np.cos(np.pi * x))
+
+        G_no_cache = SOLAOperator(
+            lebesgue_space, D, kernels=kernels, cache_kernels=False, integration_config=cfg
+        )
+        G_cached = SOLAOperator(
+            lebesgue_space, D, kernels=kernels, cache_kernels=True, integration_config=cfg
+        )
+        r_first = G_cached(f)    # warms cache
+        r_second = G_cached(f)   # uses cached evals
+        r_ref = G_no_cache(f)
+
+        assert_allclose(r_first, r_ref, rtol=0, atol=0,
+                        err_msg="First (warm) cached call differs from no-cache result")
+        assert_allclose(r_second, r_ref, rtol=0, atol=0,
+                        err_msg="Second (hot) cached call differs from no-cache result")
+
+    def test_provider_backed_caching_correct(self, lebesgue_space, unit_domain):
+        """Provider-backed kernels with cache_kernels=True give correct values."""
+        from intervalinf.providers import SineFunctionProvider
+        D = EuclideanSpace(3)
+        provider = SineFunctionProvider(unit_domain)
+        cfg = IntegrationConfig(method="simpson", n_points=2000)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=provider,
+            cache_kernels=True, integration_config=cfg,
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: np.sin(np.pi * x))
+        r1 = G(f)   # warms eval cache
+        r2 = G(f)   # uses cached evals
+        assert_allclose(r1[0], np.sqrt(2.0) / 2.0, rtol=1e-4)
+        assert_allclose(r1, r2, rtol=0, atol=0,
+                        err_msg="Provider-backed cached second call gave different result")
+
+    # ------------------------------------------------------------------
+    # 4. Compact-support kernels excluded from eval cache
+    # ------------------------------------------------------------------
+
+    def test_compact_support_kernel_not_in_eval_cache(
+        self, lebesgue_space, unit_domain
+    ):
+        """Support-restricted kernels must not appear in _kernel_eval_cache."""
+        k_compact = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.where(
+                (np.asarray(x) >= 0.2) & (np.asarray(x) <= 0.8), 1.0, 0.0
+            ),
+            support=[(0.2, 0.8)],
+        )
+        k_full = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+        )
+        D = EuclideanSpace(2)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[k_compact, k_full],
+            cache_kernels=True,
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        # f must also have compact support overlapping k_compact so that
+        # _intersect_supports(f.support, k_compact.support) returns a non-None
+        # list and the kernel is routed through the generic (non-batched) path.
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=[(0.0, 0.5)],
+        )
+        _ = G(f)
+        assert G._kernel_eval_cache is not None
+        assert 0 not in G._kernel_eval_cache, \
+            "Compact-support kernel (index 0) must NOT appear in eval cache "\
+            "when both func and kernel have overlapping compact support (generic path)"
+        assert 1 in G._kernel_eval_cache, \
+            "Full-domain kernel (index 1) must appear in eval cache (batched path)"
+
+    def test_compact_support_result_unchanged_by_caching(
+        self, lebesgue_space, unit_domain
+    ):
+        """Compact-support kernel forward result is identical with/without caching."""
+        def k_callable(x):
+            x_arr = np.asarray(x)
+            return np.where((x_arr >= 0.3) & (x_arr <= 0.7), 1.0, 0.0)
+
+        k_compact = Function(
+            unit_domain, evaluate_callable=k_callable, support=[(0.3, 0.7)]
+        )
+        D = EuclideanSpace(1)
+        cfg = IntegrationConfig(method="simpson", n_points=2000)
+        G_cached = SOLAOperator(
+            lebesgue_space, D, kernels=[k_compact], cache_kernels=True, integration_config=cfg
+        )
+        G_no_cache = SOLAOperator(
+            lebesgue_space, D, kernels=[k_compact], cache_kernels=False, integration_config=cfg
+        )
+        f = Function(lebesgue_space,
+                     evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0)
+        r_cached = G_cached(f)
+        r_ref = G_no_cache(f)
+        assert_allclose(r_cached, r_ref, rtol=0, atol=0)
+        assert_allclose(r_cached[0], 0.4, rtol=1e-3)
+
+    # ------------------------------------------------------------------
+    # 5. Cache invalidation
+    # ------------------------------------------------------------------
+
+    def test_clear_cache_empties_kernel_eval_entries(
+        self, lebesgue_space, unit_domain
+    ):
+        """clear_cache() empties _kernel_eval_cache as well as _kernels_cache."""
+        D = EuclideanSpace(2)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[
+                Function(unit_domain, evaluate_callable=lambda x: x),
+                Function(unit_domain, evaluate_callable=lambda x: 1 - x),
+            ],
+            cache_kernels=True,
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        _ = G(f)
+        assert G.get_cache_info()["kernel_eval_cache_entries"] == 2
+        G.clear_cache()
+        assert G.get_cache_info()["kernel_eval_cache_entries"] == 0
+
+    def test_clear_mesh_cache_clears_eval_entries_not_shared_mesh(
+        self, lebesgue_space, unit_domain
+    ):
+        """clear_mesh_cache() clears eval entries but preserves the shared mesh."""
+        from intervalinf.providers import SineFunctionProvider
+        D = EuclideanSpace(3)
+        provider = SineFunctionProvider(unit_domain)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=provider,
+            cache_kernels=True,
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        _ = G(f)
+        mesh_before = G._shared_mesh
+        assert G.get_cache_info()["kernel_eval_cache_entries"] == 3
+        G.clear_mesh_cache()
+        assert G.get_cache_info()["kernel_eval_cache_entries"] == 0
+        assert G._shared_mesh is mesh_before
+
+    def test_result_after_clear_cache_is_identical(self, lebesgue_space, unit_domain):
+        """After clear_cache(), the next call gives the same result as before."""
+        from intervalinf.providers import SineFunctionProvider
+        D = EuclideanSpace(3)
+        provider = SineFunctionProvider(unit_domain)
+        cfg = IntegrationConfig(method="simpson", n_points=2000)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=provider,
+            cache_kernels=True, integration_config=cfg,
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: np.sin(np.pi * x))
+        r_before = G(f)
+        G.clear_cache()
+        r_after = G(f)
+        assert_allclose(r_before, r_after, rtol=0, atol=0,
+                        err_msg="Post clear_cache result differs from pre-clear result")
+
+    def test_clear_mesh_cache_noop_when_disabled(self, lebesgue_space, unit_domain):
+        """clear_mesh_cache() is a no-op when cache_kernels=False."""
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[Function(unit_domain, evaluate_callable=lambda x: x)],
+            cache_kernels=False,
+        )
+        G.clear_mesh_cache()  # must not raise
+        assert G._kernel_eval_cache is None
+
+    # ------------------------------------------------------------------
+    # 6. get_cache_info Phase 5 fields
+    # ------------------------------------------------------------------
+
+    def test_cache_info_no_cache_has_mesh_key(self, lebesgue_space, unit_domain):
+        """get_cache_info when disabled includes shared_mesh_built key."""
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[Function(unit_domain, evaluate_callable=lambda x: x)],
+        )
+        info = G.get_cache_info()
+        assert "caching_enabled" in info
+        assert "shared_mesh_built" in info
+        assert info["caching_enabled"] is False
+        assert info["shared_mesh_built"] is False
+
+    def test_cache_info_full_stats_after_call(self, lebesgue_space, unit_domain):
+        """With cache_kernels=True and after a call, all Phase 5 stats present."""
+        D = EuclideanSpace(2)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[
+                Function(unit_domain, evaluate_callable=lambda x: x),
+                Function(unit_domain, evaluate_callable=lambda x: 1 - x),
+            ],
+            cache_kernels=True,
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        _ = G(f)
+        info = G.get_cache_info()
+        assert info["caching_enabled"] is True
+        assert info["shared_mesh_built"] is True
+        assert info["kernel_eval_cache_entries"] == 2
+        assert info["total_functions"] == 2
+
+    # ------------------------------------------------------------------
+    # 7. Repeated workload smoke test (50 calls)
+    # ------------------------------------------------------------------
+
+    def test_repeated_workload_correctness(self, lebesgue_space, unit_domain):
+        """50 G(f_i) calls with varying f and cached kernels — all match reference.
+
+        Simulates an iterative inverse problem: the operator is fixed, only
+        the input function changes at each iteration.
+        """
+        np.random.seed(42)
+        N_d = 10
+        D = EuclideanSpace(N_d)
+        from intervalinf.providers import SineFunctionProvider
+        provider = SineFunctionProvider(unit_domain)
+        cfg = IntegrationConfig(method="simpson", n_points=1000)
+
+        G_cached = SOLAOperator(
+            lebesgue_space, D, kernels=provider,
+            cache_kernels=True, integration_config=cfg,
+        )
+        G_ref = SOLAOperator(
+            lebesgue_space, D, kernels=provider,
+            cache_kernels=False, integration_config=cfg,
+        )
+
+        for _ in range(50):
+            coeffs = np.random.randn(5)
+
+            def make_f(c=coeffs):
+                return Function(
+                    lebesgue_space,
+                    evaluate_callable=lambda x, _c=c: sum(
+                        _c[k] * np.sin((k + 1) * np.pi * x)
+                        for k in range(len(_c))
+                    ),
+                )
+
+            f = make_f()
+            r_cached = G_cached(f)
+            r_ref = G_ref(f)
+            assert_allclose(
+                r_cached, r_ref, rtol=0, atol=0,
+                err_msg="Cached result differed from reference on repeated call",
+            )
