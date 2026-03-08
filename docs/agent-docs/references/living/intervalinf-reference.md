@@ -505,8 +505,18 @@ All spectral operators share the pattern: project $f$ onto eigenfunctions $\{\ph
 | Method | Description |
 |---|---|
 | `get_kernel(i)` | Lazily retrieves $i$-th kernel with optional caching |
+| `get_kernels()` | Materialises and returns all kernels as a list |
 | `_mapping(f)` | Applies $G$: returns `ndarray` of shape `(N,)` |
-| `_dual_mapping(yp)` | Returns `LinearFormKernel` reconstructed from data |
+| `_dual_mapping(yp)` | Returns `LinearFormKernel` reconstructed from data; adjoint is $G^*(y) = \sum_i y_i k_i(x)$ |
+| `compute_gram_matrix()` | Returns $N \times N$ matrix $G_{ij} = \int k_i(x)k_j(x)\,dx$ |
+| `clear_cache()` | Clears the kernel cache (no-op if `cache_kernels=False`) |
+| `get_cache_info()` | Returns dict with `caching_enabled`, `cached_functions`, `total_functions`, `cache_coverage` |
+| `for_direct_sum(domain, codomain, kernels, ...)` | **Static.** Creates a `RowLinearOperator` with one `SOLAOperator` per subspace; kernels restricted via `provider.restrict(subspace)` or `Function.restrict(subspace)` |
+
+**Known behavioral quirks (Phase 1 audit):**
+- `IntegrationConfig.method='quad'` is NOT forwarded to `IntervalDomain.integrate`; domain uses `'adaptive'`. Passing `'quad'` raises `ValueError`. Phase 3 will reconcile this.
+- Compact-support metadata on the product integrand is NOT currently propagated inside `_apply_kernels`; integration always covers the full domain.
+- Reconstructed adjoint functions loop over kernels on each evaluation.
 
 ---
 
@@ -836,6 +846,7 @@ Number of points scales with `IntegrationConfig.n_points` (default 1000); `Lebes
 | `tests/spaces/test_sobolev.py` | `Sobolev`: init with `None` Laplacian (deferred placeholder), import guards, `SobolevSpaceDirectSum`, docstring existence |
 | `tests/spaces/test_forms.py` | `LinearFormKernel`: init with kernel/components/mapping, exactly-one constraint, parallel config, lazy `components`, direct sum evaluation |
 | `tests/operators/test_operators.py` | Import tests for all operator classes; `Laplacian` creation (spectral and FD methods); basic application tests; eigenvalue/eigenfunction retrieval |
+| `tests/operators/test_sola.py` | **SOLAOperator baseline test suite (Phase 2).** 48 tests covering: analytic forward-integral checks (constant/polynomial/trig kernels with analytic reference values); linearity; adjoint-consistency $\langle G(f), y\rangle_D = \langle f, G^*(y)\rangle_M$; provider-backed kernels (`SineFunctionProvider`, `BumpFunctionProvider`, `CosineFunctionProvider`); direct `Function`-list and callable-list kernels; `cache_kernels` behavior and `get_cache_info`/`clear_cache` accessors; integration-method coverage (simpson, trapz, and baseline-recording of the `'quad'` naming error); compact-support locality with bump kernels; Gram-matrix symmetry and sine-basis orthonormality; `for_direct_sum` construction and output shape; miscellaneous robustness (str repr, `get_kernels`, domain/codomain dims, large $N_d$ smoke test). |
 | `tests/providers/test_standalone_providers.py` | Trigonometric, FEM, smooth, wavelet, step, and data providers in standalone (domain-only) mode: `is_standalone`, `function_domain`, evaluation correctness for sine functions |
 
 **Testing patterns:**
@@ -843,3 +854,14 @@ Number of points scales with `IntegrationConfig.n_points` (default 1000); `Lebes
 - Fixtures provide `unit_domain` ($[0,1]$) and `pi_domain` ($[0,\pi]$)
 - Operator tests use `@pytest.mark.slow` for expensive spectral applications
 - Mock spaces (`MockSpace`, `MockHilbertSpace`) used in `core` and `spaces` tests to avoid circular dependencies
+
+---
+
+## Benchmark Harnesses (`rough_work/`)
+
+These scripts are NOT part of the test suite; they measure runtime performance and are intended for manual profiling and speedup verification.
+
+| Script | Purpose |
+|---|---|
+| `rough_work/benchmark_dli_solvers.py` | End-to-end DLI convex optimisation benchmark across `ProximalBundleMethod`, `LevelBundleMethod`, `ChambollePockSolver`, `SmoothedLBFGSSolver` with `SOLAOperator`-backed problems; measures per-solver wall time and convergence. |
+| `rough_work/benchmark_sola_baseline.py` | **SOLAOperator baseline benchmark (Phase 2).** Separates pure SOLA microbenchmarks from downstream workflow timings. Measures forward `G(f)`, adjoint `G*(y)`, and `DualMasterCostFunction.value_and_subgradient(lam)` across a parameter matrix using integration method (`simpson`, `trapz`), `n_points` (200–2000), $N_d$ (1–200), $N_p$ (0–20 for downstream hotspot scenarios), and kernel source (`sine_provider`, `callable`, `bump_provider`). The ambient `Lebesgue` basis dimension is held fixed as an implementation detail rather than swept as a primary SOLA axis. Outputs CSV to stdout. Usage: `conda run -n inferences3 python intervalinf/rough_work/benchmark_sola_baseline.py > results.csv` |

@@ -166,26 +166,48 @@ Phase 3 should make these names internally consistent and explicitly tested.
 5. Accuracy comparisons against higher-accuracy integration settings.
 6. Adjoint-consistency residuals under explicit tolerances.
 
-### Draft benchmark parameter matrix
+### Draft benchmark taxonomy
+
+The benchmark surfaces should be split into two categories:
+
+1. **Pure SOLA microbenchmarks**
+   - These exist to understand the operator itself.
+   - They should not treat model-basis size as a primary axis.
+   - If a `Lebesgue` space object is required by the current implementation,
+     its basis dimension should be held fixed as an ambient implementation detail,
+     not swept as if SOLA itself were being benchmarked as a basis projection.
+
+2. **Downstream workflow benchmarks**
+   - These exist to understand realistic costs in current PLI/DLI-style pipelines.
+   - Here, ambient model-space choices can matter because they influence the
+     behavior of the surrounding space implementation and downstream function/norm
+     evaluations, even though they are not part of SOLA's public semantics.
+
+### Pure SOLA microbenchmark axes
 
 | Axis | Baseline values to include |
 |------|----------------------------|
 | Integration method | `simpson`, `trapz`, cleaned-up adaptive/quad case |
 | `n_points` | 200, 500, 1000, 2000 |
 | Data dimension `N_d` | 1, 5, 20, 50, 200 |
-| Property dimension `N_p` | 1, 2, 5, 20 where relevant |
-| Model basis dimension | 10, 30, 100, 300 |
 | Kernel source | provider-backed, direct function list, direct callable list |
 | Kernel family | global-support modes, compact-support bumps |
-| Function representation | coefficient-based, callable-based, compact-support callable |
+| Function representation | callable-based, compact-support callable |
 | Topology | standard space, direct-sum/discontinuity case |
+
+### Downstream workflow axes
+
+| Axis | Example values |
+|------|----------------|
+| Property dimension `N_p` | 1, 2, 5, 20 |
 | End-to-end hotspot | `DualMasterCostFunction.value_and_subgradient(...)` |
+| Ambient space implementation details | fixed by default; only varied in a dedicated downstream study if needed |
 
 ## Phase 1 conclusion
 
 The audit confirms that `SOLAOperator` is a strong candidate for acceleration,
 especially in repeated optimization workloads such as PLI and DLI. The most likely
 high-value improvements are shared-mesh/batched fixed-grid evaluation, support-aware
-integration restriction, and reusable cache structures for repeated calls. Before any
-such changes, the next required step is Phase 2: build dedicated SOLA tests and a
-thorough baseline benchmark suite.
+integration restriction, and reusable cache structures for repeated calls. Benchmarking
+should explicitly distinguish pure operator costs from downstream workflow costs so that
+future optimizations do not quietly reframe SOLA as a basis-discretized operator.

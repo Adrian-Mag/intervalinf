@@ -79,7 +79,7 @@ any optimization is attempted.
 
 ## Phase 2: Baseline correctness, robustness, and benchmark suite
 
-**Status:** ⬜ Not started
+**Status:** ✅ Complete (2026-03-08)
 
 **Objective:** Establish a rigorous pre-change baseline so that later speedups can be
 compared against known behavior, numerical accuracy, and runtime characteristics.
@@ -123,6 +123,21 @@ compared against known behavior, numerical accuracy, and runtime characteristics
 - notes on failure modes or cases where the current implementation is unexpectedly slow or fragile
 
 **Outcome:** A trustworthy baseline that later phases can compare against quantitatively.
+
+**Outcome:**
+- Added a dedicated SOLA baseline test module:
+  `intervalinf/tests/operators/test_sola.py`.
+- Added a rough-work benchmark harness:
+  `intervalinf/rough_work/benchmark_sola_baseline.py`.
+- Updated the living reference file to document the new SOLA tests, benchmark
+  harness, and currently known SOLA behavioral quirks.
+- Established baseline coverage for analytic forward correctness, linearity,
+  adjoint consistency, provider-backed and direct kernels, caching accessors,
+  integration-method behavior, compact-support scenarios, Gram-matrix basics,
+  and direct-sum smoke behavior.
+- Recorded the current `quad` naming inconsistency as baseline behavior rather
+  than changing production code in this phase.
+- Verified the new SOLA test module passes after minor review cleanup.
 
 ---
 
@@ -252,3 +267,4 @@ accurate map of the operator.
 | 2026-03-08 | Planning | Completed initial research on `SOLAOperator`, function/integration internals, current test coverage, and DLI/PLI benchmark surfaces |
 | 2026-03-08 | Planning | Recorded project decisions: keep benchmark artifacts in `rough_work/`, make fixed-grid acceleration automatic, and include integration-method cleanup in scope |
 | 2026-03-08 | Phase 1 | Completed implementation and dependency audit; documented exact forward/adjoint call graph, preserved invariants, current inefficiencies, constraints, and recommended Phase 2 benchmark surfaces |
+| 2026-03-08 | Phase 2 | Added dedicated SOLA baseline tests, a rough-work benchmark harness, and living-reference updates; review approved after minor cleanup |
