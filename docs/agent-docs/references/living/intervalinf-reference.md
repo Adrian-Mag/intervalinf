@@ -15,7 +15,7 @@
 | Python | ≥ 3.11 |
 | License | BSD-3-Clause |
 | Core dependencies | `numpy≥1.26.0`, `scipy≥1.11.0`, `pygeoinf≥1.4.2` |
-| Optional | `matplotlib≥3.8` (plotting), `sphinx` (docs), `pytest` (dev) |
+| Optional | `dev` (`pytest>=8.0.0`, `pytest-cov>=4.0.0`, `mypy>=1.0.0`, `ruff>=0.1.0`), `docs` (`sphinx>=7.0.0`, `sphinx-rtd-theme>=2.0.0`, `myst-parser>=2.0.0`), `plotting` (`matplotlib>=3.8.0`, `seaborn>=0.13.0`), `all` (`intervalinf[dev,docs,plotting]`) |
 | Build backend | hatchling |
 
 **Install:**
@@ -24,6 +24,8 @@ pip install intervalinf           # minimal
 pip install "intervalinf[all]"    # includes dev, docs, plotting
 pip install -e ".[dev]"           # editable development install
 ```
+
+**Last Updated:** 2026-03-09
 
 ---
 
@@ -67,6 +69,20 @@ intervalinf/
 └── utils/
     └── robin_utils.py   RobinRootFinder
 ```
+
+**Test layout:**
+
+```
+tests/
+├── __init__.py          Package marker for test discovery/imports
+├── conftest.py          Shared fixtures (`unit_domain`, `pi_domain`, `simple_space`)
+├── core/                Unit tests for domain, boundary conditions, config, and Function
+├── spaces/              Lebesgue, Sobolev, forms, and Sobolev-operator integration tests
+├── operators/           Spectral operator coverage and the SOLAOperator regression/optimization suite
+└── providers/           Standalone provider tests for domain-only provider usage
+```
+
+The current suite is organized by package layer rather than by mathematical workflow. When tracing a behavior change, start with the matching package directory under `tests/`, then check `tests/conftest.py` for shared fixtures reused across modules.
 
 **pygeoinf relationship:**
 
