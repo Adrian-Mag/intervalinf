@@ -204,7 +204,14 @@ class IntervalDomain:
         f : callable
             Function to integrate.
         method : str, optional
-            Integration method: 'simpson', 'trapz', or 'adaptive'.
+            Integration method.  One of:
+
+            - ``'simpson'`` \u2014 composite Simpson rule (fixed-grid).
+            - ``'trapz'``   \u2014 composite trapezoidal rule (fixed-grid).
+            - ``'adaptive'`` \u2014 ``scipy.integrate.quad`` (error-controlled).
+            - ``'quad'``    \u2014 alias for ``'adaptive'``, kept for backward
+              compatibility.
+
           support : tuple or list of tuples, optional
               Subdomain(s) for integration. If `None`, integrates over the
               entire domain.
@@ -290,28 +297,35 @@ class IntervalDomain:
                     vectorized=vectorized,
                     **kwargs,
                 )
-            return float(total)
+            return total
 
         # Single interval integration
         if support is None:
-            xs = self.uniform_mesh(max(3, n_points))
+            a_int, b_int = self.a, self.b
         else:
-            a, b = support
-            if not (self.a <= a < b <= self.b):
+            a_int, b_int = support
+            if not (self.a <= a_int < b_int <= self.b):
                 msg = (
-                    f"Support ({a}, {b}) outside domain "
+                    f"Support ({a_int}, {b_int}) outside domain "
                     f"[{self.a}, {self.b}]"
                 )
                 raise ValueError(msg)
-            xs = np.linspace(a, b, max(3, n_points))
+
+        if method in ("adaptive", "quad"):
+            # 'quad' is a legacy alias for 'adaptive'. Both delegate directly
+            # to scipy.integrate.quad and intentionally ignore fixed-grid
+            # settings like n_points.
+            from scipy.integrate import quad
+
+            return float(quad(f, a_int, b_int, **kwargs)[0])
+
+        xs = np.linspace(a_int, b_int, max(3, n_points))
 
         def eval_mesh(xs_vals: np.ndarray) -> np.ndarray:
             if vectorized is True:
                 return np.asarray(f(xs_vals))
             if vectorized is False:
-                return np.fromiter(
-                    (f(x) for x in xs_vals), dtype=float, count=xs_vals.size
-                )
+                return np.asarray([f(x) for x in xs_vals])
             try:
                 out = f(xs_vals)
                 arr = np.asarray(out)
@@ -321,30 +335,25 @@ class IntervalDomain:
                     )
                 return arr
             except Exception:
-                return np.fromiter(
-                    (f(x) for x in xs_vals), dtype=float, count=xs_vals.size
-                )
+                return np.asarray([f(x) for x in xs_vals])
 
         ys = eval_mesh(xs)
 
         if method == "simpson":
             from scipy.integrate import simpson
-            return float(simpson(ys, x=xs))
+            return simpson(ys, x=xs)
 
         if method == "trapz":
             try:
                 from scipy.integrate import trapezoid as trapz
             except ImportError:
                 from scipy.integrate import trapz  # type: ignore
-            return float(trapz(ys, x=xs))
+            return trapz(ys, x=xs)
 
-        if method == "adaptive":
-            from scipy.integrate import quad
-            a_int = self.a if support is None else support[0]
-            b_int = self.b if support is None else support[1]
-            return float(quad(f, a_int, b_int, **kwargs)[0])
-
-        msg = f"Unknown integration method: {method}"
+        msg = (
+            f"Unknown integration method: {method!r}. Valid methods: "
+            "'simpson', 'trapz', 'adaptive', 'quad'."
+        )
         raise ValueError(msg)
 
     def restriction_to_subinterval(

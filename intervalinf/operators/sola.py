@@ -110,6 +110,22 @@ class SOLAOperator(LinearOperator):
         # Store integration config
         self.integration = integration_config
 
+        # Phase 5: shared mesh reuse.
+        # The mesh depends only on domain bounds and n_points, both immutable
+        # after construction, so it is safe to build once and reuse forever.
+        self._shared_mesh: Optional[np.ndarray] = None
+
+        # Phase 5: kernel mesh evaluation cache.
+        # Maps kernel index → ndarray of values on the shared fixed-grid mesh.
+        # Populated for kernels that take the batched path. Fallback to the
+        # generic path happens only when a support intersection is explicitly
+        # computable from both func.support and kernel.support.
+        # Only active when cache_kernels=True so that provider-backed kernels
+        # whose Function objects are also cached remain the source of truth.
+        self._kernel_eval_cache: Optional[dict] = (
+            {} if cache_kernels else None
+        )
+
         self._initialize_kernels(kernels)
 
         super().__init__(
@@ -199,43 +215,281 @@ class SOLAOperator(LinearOperator):
 
         return kernel
 
-    def _apply_kernels(self, func: Function) -> np.ndarray:
+    def _apply_kernels(self, func: 'Function') -> np.ndarray:
         """
         Apply the kernel functions to a function by integrating their product.
 
-        For each kernel k_i, computes ∫ func(x) * k_i(x) dx
+        For each kernel k_i, computes $\\int f(x) \\, k_i(x) \\, dx$.
+
+        Dispatches automatically to the fast batched path for fixed-grid
+        methods (``'simpson'``, ``'trapz'``) and to the generic per-kernel
+        path for adaptive methods.
 
         Parameters
         ----------
         func : Function
-            Function from the domain space
+            Function from the domain space.
 
         Returns
         -------
         numpy.ndarray
-            Vector of data in R^{N_d}
+            Vector of data in $\\mathbb{R}^{N_d}$.
         """
-        data = np.zeros(self.N_d)
+        if self.integration.is_fixed_grid:
+            return self._apply_kernels_fixed_grid(func)
+        return self._apply_kernels_generic(func)
+
+    @staticmethod
+    def _eval_on_mesh(func: 'Function', xs: np.ndarray) -> np.ndarray:
+        """
+        Evaluate *func* on a mesh, preserving scalar dtype where possible.
+
+        Tries a vectorised call first; if that raises or returns the wrong
+        shape, falls back to per-point scalar evaluation.  This preserves
+        correctness for any callable, including non-vectorised ones.
+
+        Parameters
+        ----------
+        func : Function
+            The function to evaluate.
+        xs : ndarray, shape (n,)
+            Mesh points.
+
+        Returns
+        -------
+        ndarray, shape (n,)
+        """
+        try:
+            result = func.evaluate(xs, check_domain=False)
+            arr = np.asarray(result)
+            if arr.shape == xs.shape:
+                return arr
+        except Exception:
+            pass
+        # Per-point fallback for non-vectorised callables.
+        return np.asarray(
+            [func.evaluate(float(x), check_domain=False) for x in xs]
+        )
+
+    def _get_or_build_mesh(self) -> np.ndarray:
+        """Return the shared fixed-grid mesh, building it lazily on first call.
+
+        The mesh depends only on domain bounds and ``integration.n_points``,
+        both of which are immutable after construction, so it is safe to
+        build once and reuse indefinitely across repeated ``G(f)`` calls.
+
+        Returns
+        -------
+        ndarray, shape (n_points,)
+        """
+        if self._shared_mesh is None:
+            domain = self._domain.function_domain
+            n_points = max(3, self.integration.n_points)
+            self._shared_mesh = np.linspace(domain.a, domain.b, n_points)
+        return self._shared_mesh
+
+    def _apply_kernels_fixed_grid(self, func: 'Function') -> np.ndarray:
+        """
+        Automatic accelerated forward path for fixed-grid integration methods.
+
+        Phase 4: builds the quadrature mesh once per call (Phase 5: reused
+        across calls), evaluates the input function once on the shared mesh,
+        assembles a ``(N_d, n_points)`` kernel matrix, and integrates all
+        products with a single batched ``scipy.integrate.simpson`` or
+        ``trapezoid`` call.
+
+        Phase 5 additions
+        -----------------
+        * **Mesh reuse**: the shared mesh (xs) is built once at first call and
+          reused on all subsequent calls via :meth:`_get_or_build_mesh`.  The
+          mesh depends only on immutable construction parameters so no
+          invalidation is needed.
+        * **Kernel mesh evaluation cache**: when ``cache_kernels=True``, the
+          per-kernel mesh evaluations ``k_i(xs)`` are stored in
+          ``_kernel_eval_cache`` after the first forward call and reused on
+          all subsequent calls, eliminating repeated kernel evaluations in
+          iterative workloads. Only full-domain (non-compact-support) kernels
+          are cached here; support-restricted kernels still fall back per
+          kernel to the Phase 3 generic path.
+
+        Dispatch conditions
+        -------------------
+        * ``self.integration.is_fixed_grid`` is True (method ``'simpson'``
+          or ``'trapz'``).
+        * Called automatically from :meth:`_apply_kernels`.
+
+        Fallback for non-vectorised callables
+        --------------------------------------
+        :meth:`_eval_on_mesh` tries a vectorised call on the shared mesh
+        first; if that fails (wrong shape, exception), it falls back to a
+        per-point loop.  Correctness is preserved regardless of whether
+        the callable supports array input.
+
+        Support propagation
+        -------------------
+        Kernels whose support is disjoint from *func*'s support are skipped
+        exactly as in the generic path (result is 0 without evaluating the
+        integrand). For non-disjoint compact-support configurations, this
+        method falls back to the generic Phase 3 path for that kernel so the
+        quadrature mesh is still built on the narrowed support intersection.
+
+        Parameters
+        ----------
+        func : Function
+            Function from the domain space.
+
+        Returns
+        -------
+        ndarray, shape (N_d,)
+        """
+        from scipy.integrate import simpson as _simpson
+        try:
+            from scipy.integrate import trapezoid as _trapz
+        except ImportError:
+            # pragma: no cover - scipy < 1.11 fallback
+            from scipy.integrate import trapz as _trapz  # type: ignore
+
+        domain = self._domain.function_domain
+        method = self.integration.method
+        n_points = max(3, self.integration.n_points)
+
+        # ── Phase 5: reuse shared mesh ────────────────────────────────────
+        xs = self._get_or_build_mesh()
+
+        # ── Evaluate f once on the shared mesh ───────────────────────────
+        f_vals = self._eval_on_mesh(func, xs)
+
+        # ── Evaluate all kernels on the shared mesh ───────────────────────
+        # Pre-build a (N_d, n_points) kernel matrix; kernels with disjoint
+        # support vs func are left as zeros and flagged in disjoint_mask.
+        results = [0.0] * self.N_d
+        batched_indices = []
+        batched_rows = []
+        disjoint_mask = np.zeros(self.N_d, dtype=bool)
+
+        for i in range(self.N_d):
+            kernel = self.get_kernel(i)
+            intersected_support = Function._intersect_supports(
+                func.support, kernel.support
+            )
+            if intersected_support == []:
+                # Supports are disjoint → product is identically zero.
+                disjoint_mask[i] = True
+                continue
+
+            # Preserve Phase 3 support-aware quadrature semantics whenever a
+            # genuine compact-support restriction is available.  These kernels
+            # are NOT stored in the kernel eval cache because the correct
+            # integration range depends on func.support which varies per call.
+            if intersected_support is not None:
+                def product_callable(x, _f=func, _k=kernel):
+                    return _f.evaluate(
+                        x,
+                        check_domain=False,
+                    ) * _k.evaluate(
+                        x,
+                        check_domain=False,
+                    )
+
+                results[i] = domain.integrate(
+                    product_callable,
+                    method=method,
+                    support=intersected_support,
+                    n_points=n_points,
+                )
+                continue
+
+            # Full-domain kernel: check kernel eval cache before evaluating.
+            # Phase 5: when cache_kernels=True, k_i(xs) is stored after the
+            # first evaluation and reused on all subsequent forward calls.
+            if self._kernel_eval_cache is not None and i in self._kernel_eval_cache:
+                k_vals = self._kernel_eval_cache[i]
+            else:
+                k_vals = self._eval_on_mesh(kernel, xs)
+                if self._kernel_eval_cache is not None:
+                    self._kernel_eval_cache[i] = k_vals
+
+            batched_indices.append(i)
+            batched_rows.append(k_vals)
+
+        if batched_rows:
+            K_matrix = np.stack(batched_rows, axis=0)
+            P_matrix = f_vals[np.newaxis, :] * K_matrix
+            if method == "simpson":
+                batched_data = np.asarray(_simpson(P_matrix, x=xs, axis=1))
+            else:  # 'trapz'
+                batched_data = np.asarray(_trapz(P_matrix, x=xs, axis=1))
+
+            for index, value in zip(batched_indices, batched_data):
+                results[index] = value
+
+        data = np.asarray(results)
+        # Force disjoint-support entries to exactly 0 (no numerical noise).
+        data[disjoint_mask] = 0.0
+        return data
+
+    def _apply_kernels_generic(self, func: 'Function') -> np.ndarray:
+        """
+        Per-kernel integration loop for adaptive methods and as fallback.
+
+        This is the original integration path, used when
+        ``self.integration.is_adaptive`` is True.  It builds a fresh
+        product callable and calls ``domain.integrate`` for each kernel
+        individually.
+
+        Support propagation (Phase 3): if both *func* and the kernel carry
+        compact-support metadata the integration range is narrowed to the
+        support intersection.  When the supports are disjoint the result
+        is exactly 0 without evaluating the integrand.
+
+        Parameters
+        ----------
+        func : Function
+            Function from the domain space.
+
+        Returns
+        -------
+        numpy.ndarray
+            Vector of data in $\\mathbb{R}^{N_d}$.
+        """
+        results = [0.0] * self.N_d
+        domain = self._domain.function_domain
+        method = self.integration.method
+        n_points = self.integration.n_points
 
         for i in range(self.N_d):
             # Lazily get the i-th kernel
             kernel = self.get_kernel(i)
 
-            # Compute integral of product: ∫ func(x) * kernel(x) dx
-            def product_callable(x, _kernel=kernel):
-                return (func.evaluate(x) *
-                        _kernel.evaluate(x, check_domain=False))
-
-            product_func = Function(
-                self._domain.function_domain,
-                evaluate_callable=product_callable
-            )
-            data[i] = product_func.integrate(
-                method=self.integration.method,
-                n_points=self.integration.n_points
+            # Narrow the integration range to compound support intersection.
+            # Function._intersect_supports returns None when either operand has
+            # no compact-support hint (safe: integrates over the full domain).
+            intersected_support = Function._intersect_supports(
+                func.support, kernel.support
             )
 
-        return data
+            # Empty intersection → product is identically zero; no need to
+            # evaluate the integrand at all.
+            if intersected_support == []:
+                continue  # data[i] already 0.0
+
+            def product_callable(x, _f=func, _k=kernel):
+                return _f.evaluate(
+                    x,
+                    check_domain=False,
+                ) * _k.evaluate(
+                    x,
+                    check_domain=False,
+                )
+
+            results[i] = domain.integrate(
+                product_callable,
+                method=method,
+                support=intersected_support,
+                n_points=n_points,
+            )
+
+        return np.asarray(results)
 
     def _reconstruct_function(self, data: np.ndarray) -> Function:
         """
@@ -289,58 +543,114 @@ class SOLAOperator(LinearOperator):
         """
         Compute the Gram matrix of the kernels using function integration.
 
-        For kernels k_i, k_j, computes ∫ k_i(x) * k_j(x) dx
+        For kernels $k_i, k_j$, computes $G_{ij} = \\int k_i(x) k_j(x) \\, dx$.
+
+        Support propagation is applied: if both kernels have compact-support
+        metadata, integration is restricted to the support intersection.
 
         Returns
         -------
         numpy.ndarray
-            N_d x N_d matrix of integrals between kernels
+            $N_d \\times N_d$ matrix of kernel inner products.
         """
         gram = np.zeros((self.N_d, self.N_d))
+        domain = self._domain.function_domain
+        method = self.integration.method
+        n_points = self.integration.n_points
 
         for i in range(self.N_d):
             kernel_i = self.get_kernel(i)
             for j in range(self.N_d):
                 kernel_j = self.get_kernel(j)
 
+                intersected_support = Function._intersect_supports(
+                    kernel_i.support, kernel_j.support
+                )
+                if intersected_support == []:
+                    continue  # gram[i, j] already 0.0
+
                 def product_callable(x, _ki=kernel_i, _kj=kernel_j):
                     return _ki.evaluate(x) * _kj.evaluate(x)
 
-                product_func = Function(
-                    self._domain.function_domain,
-                    evaluate_callable=product_callable
-                )
-                gram[i, j] = product_func.integrate(
-                    method=self.integration.method,
-                    n_points=self.integration.n_points
+                gram[i, j] = domain.integrate(
+                    product_callable,
+                    method=method,
+                    support=intersected_support,
+                    n_points=n_points,
                 )
 
         return gram
 
+    def clear_mesh_cache(self):
+        """Clear the kernel mesh evaluation cache.
+
+        Forces re-evaluation of all kernel functions on the shared mesh at
+        the next forward call.  The shared mesh array (xs) itself is **not**
+        cleared because it depends only on immutable construction parameters
+        (domain bounds and ``n_points``) and never needs rebuilding.
+
+        Use this when kernel callables may have changed since the last call
+        while the operator object is reused across different workloads.  Note
+        that ``clear_cache()`` also calls this method, so clearing the kernel
+        object cache automatically invalidates mesh evaluations too.
+
+        Has no effect when ``cache_kernels=False``.
+        """
+        if self._kernel_eval_cache is not None:
+            self._kernel_eval_cache.clear()
+
     def clear_cache(self):
-        """Clear the function cache if caching is enabled."""
+        """Clear the kernel object cache and kernel mesh evaluation cache.
+
+        After this call, the next ``G(f)`` invocation re-fetches all kernels
+        from the provider and re-evaluates them on the shared mesh, restoring
+        a fully fresh state.  The shared mesh array itself is preserved.
+        """
         if self.cache_kernels and self._kernels_cache is not None:
             self._kernels_cache.clear()
+        # Phase 5: also clear cached kernel mesh evaluations so stale values
+        # are not retained after the kernel objects themselves are evicted.
+        self.clear_mesh_cache()
 
     def get_cache_info(self) -> dict:
         """
-        Get information about the function cache.
+        Get information about the kernel and mesh caches.
 
         Returns
         -------
         dict
-            Cache statistics including size and hit rate
+            Cache statistics.  Keys present in all cases:
+
+            - ``caching_enabled``: whether ``cache_kernels=True``.
+            - ``shared_mesh_built``: whether the shared fixed-grid mesh has
+              been constructed (happens on the first fixed-grid forward call).
+
+            Additional keys when ``caching_enabled`` is ``True``:
+
+            - ``cached_functions``: number of kernel ``Function`` objects
+              held in the kernel object cache.
+            - ``total_functions``: ``N_d`` (total number of kernels).
+            - ``cache_coverage``: fraction of kernels cached as objects.
+            - ``kernel_eval_cache_entries``: number of kernel mesh evaluations
+              currently stored (Phase 5).  Each entry is an ndarray of shape
+              ``(n_points,)`` for one full-domain kernel.
         """
+        info: dict = {
+            "caching_enabled": self.cache_kernels,
+            "shared_mesh_built": self._shared_mesh is not None,
+        }
         if not self.cache_kernels:
-            return {"caching_enabled": False}
+            return info
 
         assert self._kernels_cache is not None
-        return {
-            "caching_enabled": True,
+        assert self._kernel_eval_cache is not None
+        info.update({
             "cached_functions": len(self._kernels_cache),
             "total_functions": self.N_d,
-            "cache_coverage": len(self._kernels_cache) / self.N_d
-        }
+            "cache_coverage": len(self._kernels_cache) / self.N_d,
+            "kernel_eval_cache_entries": len(self._kernel_eval_cache),
+        })
+        return info
 
     def __str__(self) -> str:
         """String representation of the SOLA operator."""

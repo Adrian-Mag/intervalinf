@@ -139,7 +139,7 @@ No pygeoinf dependency. Safe to import anywhere.
 | `interior()` | `→ IntervalDomain` | Returns open version |
 | `closure()` | `→ IntervalDomain` | Returns closed version |
 | `boundary_points()` | `→ (float, float)` | Returns $(a, b)$ |
-| `integrate(f, ...)` | `(callable, method, support, n_points, vectorized) → float` | Integrates $f$ via `'simpson'`, `'trapz'`, or `'adaptive'`; supports subinterval `support` |
+| `integrate(f, ...)` | `(callable, method, support, n_points, vectorized) → float` | Integrates $f$ via `'simpson'`, `'trapz'`, `'adaptive'`, or `'quad'` (alias for `'adaptive'`); supports subinterval `support` |
 | `restriction_to_subinterval(a, b)` | `(float, float) → IntervalDomain` | Creates child domain $[a,b] \subseteq$ self |
 | `split_at_discontinuities(pts)` | `(list) → list[IntervalDomain]` | Splits at interior discontinuity points |
 
@@ -215,14 +215,21 @@ Supported `bc_type` values:
 
 **Purpose:** Typed configuration objects for numerical integration and parallelisation.
 
+**Module-level constants (Phase 3):**
+
+| Constant | Value | Purpose |
+|---|---|---|
+| `FIXED_GRID_METHODS` | `frozenset({'simpson', 'trapz'})` | Fixed-point-mesh methods; candidates for Phase 4 batching |
+| `ADAPTIVE_METHODS` | `frozenset({'adaptive', 'quad'})` | Methods delegating to `scipy.integrate.quad`; `'quad'` is an alias for `'adaptive'` |
+
 | Class | Constructor | Fields | Presets |
 |---|---|---|---|
-| `IntegrationConfig` | `(method='simpson', n_points=1000)` | `method`, `n_points` | `.high_accuracy()`, `.fast()`, `.adaptive(dim)` |
+| `IntegrationConfig` | `(method='simpson', n_points=1000)` | `method`, `n_points`, `is_fixed_grid` (prop), `is_adaptive` (prop) | `.high_accuracy()`, `.fast()`, `.adaptive_quad()`, `.adaptive(dim)` |
 | `ParallelConfig` | `(enabled=False, n_jobs=-1)` | `enabled`, `n_jobs` | `.all_cores()`, `.cores(n)`, `.serial()` |
 | `LebesgueIntegrationConfig` | `(inner_product, dual, general)` | Three `IntegrationConfig` sub-configs | `.from_single(cfg)`, `.high_accuracy_galerkin()`, `.adaptive_spectral(dim)` |
 | `LebesgueParallelConfig` | `(inner_product, dual, general)` | Three `ParallelConfig` sub-configs | `.from_single(cfg)`, `.parallel_dual(n_jobs)`, `.full_parallel(n_jobs)` |
 
-All dataclasses support `.copy(**overrides)`.
+All dataclasses support `.copy(**overrides)`.  `IntegrationConfig.method` accepts `'simpson'`, `'trapz'`, `'adaptive'`, and `'quad'` (alias for `'adaptive'`).  `is_fixed_grid` is `True` for `'simpson'` / `'trapz'` and determines Phase 4 batchability.
 
 ---
 
@@ -240,16 +247,16 @@ All dataclasses support `.copy(**overrides)`.
 - **Base:** `pygeoinf.HilbertSpace`
 - **Mathematical space:** $L^2([a,b]; w)$ with inner product $\langle u, v \rangle = \int_a^b u(x)v(x)w(x)\,dx$
 - **Constructor:** `Lebesgue(dim, function_domain, /, *, basis=None, weight=None, integration_config=None, parallel_config=None)`
-  - `dim`: Dimension of the finite-dimensional approximation
+  - `dim`: Number of basis functions used only in basis-backed workflows; may be `0` in basis-free mode
   - `function_domain`: `IntervalDomain`
-  - `basis`: `'sine'` | `'cosine'` | `'fourier'` | `'DN'` | `'ND'` | `'hat'` | `'none'` | list of callables | `None` (defaults to `'none'`)
+  - `basis`: `'sine'` | `'cosine'` | `'fourier'` | `'DN'` | `'ND'` | `'hat'` | `'none'` | list of callables | `None` (defaults to `'none'`, i.e. basis-free functional mode)
   - `weight`: Optional weight function $w(x)$
   - `integration_config`: `IntegrationConfig` or `LebesgueIntegrationConfig`
   - `parallel_config`: `ParallelConfig` or `LebesgueParallelConfig`
 
 | Property | Description |
 |---|---|
-| `dim` | Finite dimension |
+| `dim` | Basis count for basis-backed operations; does not control direct callable/integration-only workflows |
 | `function_domain` | The `IntervalDomain` |
 | `metric` | Gram matrix $G_{ij} = \langle \phi_i, \phi_j \rangle$ (cached) |
 | `integration` | `LebesgueIntegrationConfig` |
@@ -505,8 +512,93 @@ All spectral operators share the pattern: project $f$ onto eigenfunctions $\{\ph
 | Method | Description |
 |---|---|
 | `get_kernel(i)` | Lazily retrieves $i$-th kernel with optional caching |
+| `get_kernels()` | Materialises and returns all kernels as a list |
 | `_mapping(f)` | Applies $G$: returns `ndarray` of shape `(N,)` |
-| `_dual_mapping(yp)` | Returns `LinearFormKernel` reconstructed from data |
+| `_dual_mapping(yp)` | Returns `LinearFormKernel` reconstructed from data; adjoint is $G^*(y) = \sum_i y_i k_i(x)$ |
+| `compute_gram_matrix()` | Returns $N \times N$ matrix $G_{ij} = \int k_i(x)k_j(x)\,dx$ |
+| `clear_cache()` | Clears `_kernels_cache` AND `_kernel_eval_cache`; `_shared_mesh` is preserved |
+| `clear_mesh_cache()` | Clears only `_kernel_eval_cache`; `_shared_mesh` is preserved (no-op if `cache_kernels=False`) |
+| `get_cache_info()` | Returns dict with `caching_enabled`, `shared_mesh_built`; when enabled also `cached_functions`, `total_functions`, `cache_coverage`, `kernel_eval_cache_entries` |
+| `for_direct_sum(domain, codomain, kernels, ...)` | **Static.** Creates a `RowLinearOperator` with one `SOLAOperator` per subspace; kernels restricted via `provider.restrict(subspace)` or `Function.restrict(subspace)` |
+| `_eval_on_mesh(func, xs)` | **Static.** Evaluates a `Function` on a numpy mesh array with vectorisation fallback for non-vectorised callables; preserves complex dtype |
+| `_apply_kernels(func)` | Dispatch method: routes to `_apply_kernels_fixed_grid` for fixed-grid methods, `_apply_kernels_generic` for adaptive |
+| `_apply_kernels_fixed_grid(func)` | Phase 4 batched path — builds mesh once, evaluates f once, batches full-domain kernels, and falls back per kernel when support restriction must be preserved |
+| `_apply_kernels_generic(func)` | Original per-kernel loop — calls `domain.integrate()` individually for each kernel; used for adaptive methods |
+
+**Phase 3 changes (2026-03-08):**
+- `IntegrationConfig(method='quad')` now works correctly — `'quad'` routes to `scipy.integrate.quad` via the `'adaptive'` alias in `IntervalDomain.integrate`.
+- `_apply_kernels` no longer allocates a `Function` wrapper per kernel; it calls `domain.integrate()` directly.
+- `_apply_kernels` and `compute_gram_matrix` now propagate compact-support metadata: when both the input function and the kernel carry compact-support information, the integration range is narrowed to the support intersection.  Disjoint supports return 0 without evaluating the integrand.
+- Reconstructed adjoint functions still loop over kernels on each evaluation (Phase 5/6 scope).
+
+**Phase 5 changes (2026-03-08):** Kernel-eval caching for repeated workloads.
+- **`_shared_mesh: Optional[np.ndarray]`** — lazy-built on first `_apply_kernels_fixed_grid` call via `np.linspace(a, b, n_points)`. Never cleared; depends only on immutable constructor parameters (domain bounds + n_points).
+- **`_kernel_eval_cache: Optional[dict]`** — `None` when `cache_kernels=False`; otherwise a dict mapping kernel index → `ndarray` of shape `(n_points,)` (kernel values on the shared mesh). Populated **only** on the batched path. Cleared by `clear_cache()` and `clear_mesh_cache()`; `_shared_mesh` is never cleared.
+- **`_get_or_build_mesh()`** — private helper; builds and stores `_shared_mesh` on first call, returns it on subsequent calls.
+- **Batched-path loop** now checks eval cache before calling `_eval_on_mesh(kernel, xs)`; stores result if not present.
+- **Cache semantics:** A kernel is cached iff it goes through the batched path. A kernel goes through the generic fallback (NOT cached) only when `_intersect_supports(func.support, kernel.support)` returns a non-`None`, non-empty list (i.e. BOTH function and kernel have compact-support metadata that overlaps). Disjoint supports → kernel skipped entirely (also not cached).
+- **Memory:** each entry ≈ 8 KB at n_points=1000; N_d entries ≈ N_d × 8 KB (e.g. 200 × 8 KB = 1.6 MB).
+- **Measured speedup** for repeated workloads (N_REPS=50 distinct input functions, n_points=1000): about 1.6x–3.6x across N_d 5–200 on the current benchmark.
+
+**Phase 4 changes (2026-03-08):**
+- `_apply_kernels` now dispatches based on `self.integration.is_fixed_grid`:
+  - **Fixed-grid methods** (`'simpson'`, `'trapz'`): automatic batched path via `_apply_kernels_fixed_grid`.
+    - Mesh built **once** per `G(f)` call.
+    - Input function `f` evaluated **once** on the shared mesh.
+    - Full-domain kernels assembled into an `(N_d, n_points)` matrix.
+    - Product matrix integrated in a single `scipy.integrate.simpson` or `trapezoid` call.
+    - Non-vectorised callables handled via `_eval_on_mesh` fallback (per-point loop).
+    - Disjoint-support kernels still skipped without evaluation.
+    - Support-restricted kernels fall back per kernel to the Phase 3 generic path so narrowed-support quadrature resolution is preserved.
+    - Complex-valued fixed-grid evaluations are preserved end to end; no silent real downcast in the batched or support-restricted fixed-grid paths.
+  - **Adaptive methods** (`'adaptive'`, `'quad'`): unchanged generic per-kernel loop via `_apply_kernels_generic`.
+- Static helper `_eval_on_mesh(func, xs)` added: tries vectorised `Function.evaluate(xs)` first; on shape mismatch or exception, falls back to per-point evaluation while preserving scalar dtype.
+- `IntervalDomain.integrate` fixed-grid methods (`'simpson'`, `'trapz'`) now preserve complex dtype in both vectorised and scalar-fallback evaluation paths.
+- Measured speedup over `_apply_kernels_generic` (same method, n_points=1000): about 2–5x for N_d 5–200 on the current benchmark.
+- Public API and semantics unchanged: operator remains "continuous operator evaluated numerically".
+
+**Integration method support:**
+
+| `IntegrationConfig.method` | Behaviour | `is_fixed_grid` | Forward path |
+|---|---|---|---|
+| `'simpson'` | Composite Simpson on uniform mesh | True | `_apply_kernels_fixed_grid` (batched) |
+| `'trapz'` | Composite trapezoidal on uniform mesh | True | `_apply_kernels_fixed_grid` (batched) |
+| `'adaptive'` | `scipy.integrate.quad` error-controlled | False | `_apply_kernels_generic` (per-kernel) |
+| `'quad'` | Alias for `'adaptive'` (legacy name) | False | `_apply_kernels_generic` (per-kernel) |
+
+**Phase 6 end-to-end performance summary (2026-03-08):**
+
+Validated against the forced generic path in the current codebase
+(`_apply_kernels_generic`), which reproduces the Phase 2 forward-path behavior
+without checking out an earlier revision. The comparison matrix covers N_d
+5–200, n_points 200–2000, simpson/trapz, and sine/callable/bump kernels.
+
+| Workload | Phase 4 single-call speedup | Phase 5 single-call speedup (warm) | Phase 5 batch speedup (N=30) |
+|---|---|---|---|
+| sine_provider, N_d 5–20 | 2.8x–4.9x | 4.7x–13x | 1.6x–2.8x |
+| sine_provider, N_d 50–200 | 3.7x–5.5x | 8.4x–19.3x | 2.1x–5.4x |
+| callable kernels, N_d=20 | 5.0x | 11.3x | 2.3x |
+| bump_provider, N_d=20 | 2.5x | 19x | 7.6x |
+| bump_provider, N_d=50 | 2.6x | 28.9x | 10.2x |
+
+Key findings:
+- **Global/smooth kernels (full-domain batched path):** Phase 4 achieves clear
+  multi-x single-call speedup via batched numpy/scipy integration; Phase 5
+  multiplies this further when the kernel-eval cache is warm.
+- **Localized bump kernels (bump_provider):** In the Phase 6 scenarios these
+  kernels are still eligible for the batched/cached fixed-grid path because the
+  test input function carries no compact-support metadata, so no explicit
+  support intersection is available. Large warm-cache gains therefore reflect
+  forced-generic versus batched/cached comparison on sharply localized kernels,
+  not a support-narrowed fallback path. Always use `method='adaptive'` when
+  high accuracy is required for peaky bump kernels: fixed-grid Simpson on a
+  global mesh can differ from adaptive quad by O(1) for sharp bumps.
+- **Accuracy (fast path vs adaptive reference):** machine-precision (< 1e-8) for global/smooth kernels with n_points ≥ 500; n_points=200 shows ~1e-5 error (acceptable for iterative methods).
+- **Adjoint residual:** heuristic check stays < 1e-5 for all global/smooth
+  scenarios; up to 2e-3 for large-N_d bump providers with fixed-grid
+  integration (expected; not a regression — use 'adaptive' for high-accuracy
+  bump scenarios).
+- **No correctness issues found; no Phase-6 implementation fixes required.**
 
 ---
 
@@ -836,6 +928,7 @@ Number of points scales with `IntegrationConfig.n_points` (default 1000); `Lebes
 | `tests/spaces/test_sobolev.py` | `Sobolev`: init with `None` Laplacian (deferred placeholder), import guards, `SobolevSpaceDirectSum`, docstring existence |
 | `tests/spaces/test_forms.py` | `LinearFormKernel`: init with kernel/components/mapping, exactly-one constraint, parallel config, lazy `components`, direct sum evaluation |
 | `tests/operators/test_operators.py` | Import tests for all operator classes; `Laplacian` creation (spectral and FD methods); basic application tests; eigenvalue/eigenfunction retrieval |
+| `tests/operators/test_sola.py` | **SOLAOperator test suite (Phases 2–5).** 103 tests (405 total across suite). Phase 2 coverage: analytic forward-integral checks (constant/polynomial/trig kernels with analytic reference values); linearity; adjoint-consistency $\langle G(f), y\rangle_D = \langle f, G^*(y)\rangle_M$; provider-backed kernels (`SineFunctionProvider`, `BumpFunctionProvider`, `CosineFunctionProvider`); direct `Function`-list and callable-list kernels; `cache_kernels` behavior and `get_cache_info`/`clear_cache` accessors; integration-method coverage; compact-support locality; Gram-matrix symmetry; `for_direct_sum`. Phase 3–4: fixed-grid batched path; complex-valued kernels; adaptive vs fixed dispatch. Phase 5 (`TestPhase5ReuseAndCaching`): shared mesh unbuilt→built→same-object; `shared_mesh_built` in `get_cache_info`; eval cache `None` when disabled; cache populated/correct shape after call; cached == uncached bitwise; provider-backed caching; support-overlap kernel excluded from eval cache; `clear_cache` empties entries; `clear_mesh_cache` clears eval cache but preserves shared mesh; repeated N_REPS=50 workload smoke test. |
 | `tests/providers/test_standalone_providers.py` | Trigonometric, FEM, smooth, wavelet, step, and data providers in standalone (domain-only) mode: `is_standalone`, `function_domain`, evaluation correctness for sine functions |
 
 **Testing patterns:**
@@ -843,3 +936,16 @@ Number of points scales with `IntegrationConfig.n_points` (default 1000); `Lebes
 - Fixtures provide `unit_domain` ($[0,1]$) and `pi_domain` ($[0,\pi]$)
 - Operator tests use `@pytest.mark.slow` for expensive spectral applications
 - Mock spaces (`MockSpace`, `MockHilbertSpace`) used in `core` and `spaces` tests to avoid circular dependencies
+
+---
+
+## Benchmark Harnesses (`rough_work/`)
+
+These scripts are NOT part of the test suite; they measure runtime performance and are intended for manual profiling and speedup verification.
+
+| Script | Purpose |
+|---|---|
+| `rough_work/benchmark_dli_solvers.py` | End-to-end DLI convex optimisation benchmark across `ProximalBundleMethod`, `LevelBundleMethod`, `ChambollePockSolver`, `SmoothedLBFGSSolver` with `SOLAOperator`-backed problems; measures per-solver wall time and convergence. Uses a process-based timeout wrapper (`multiprocessing`, Linux `fork`) so long-running solver calls inside C/Fortran extensions are actually terminated at the requested wall-clock limit. |
+| `rough_work/benchmark_sola_baseline.py` | **SOLAOperator baseline benchmark (Phase 2).** Separates pure SOLA microbenchmarks from downstream workflow timings. Measures forward `G(f)`, adjoint `G*(y)`, and `DualMasterCostFunction.value_and_subgradient(lam)` across a parameter matrix using integration method (`simpson`, `trapz`), `n_points` (200–2000), $N_d$ (1–200), $N_p$ (0–20 for downstream hotspot scenarios), and kernel source (`sine_provider`, `callable`, `bump_provider`). The ambient `Lebesgue` basis dimension is held fixed as an implementation detail rather than swept as a primary SOLA axis. Outputs CSV to stdout. Usage: `conda run -n inferences3 python intervalinf/rough_work/benchmark_sola_baseline.py > results.csv` |
+| `rough_work/benchmark_phase5.py` | **Phase 5 repeated-workload benchmark.** Compares `cache_kernels=True` (warm calls reuse `_kernel_eval_cache`) vs `cache_kernels=False` (cold, recomputes evals every call) over N_REPS=50 distinct input functions. Sweeps $N_d$ ∈ {5,10,20,50,100,200} with n_points=1000 (Simpson). Measured speedup: 1.6x–5.2x. Usage: `conda run -n inferences3 python intervalinf/rough_work/benchmark_phase5.py` |
+| `rough_work/benchmark_phase6_comparison.py` | **Phase 6 end-to-end comparison benchmark.** Three-way comparison: `_apply_kernels_generic` (Phase 2 baseline path), Phase 4 batched fast path, and Phase 5 warm-cached path. Also validates adjoint consistency and accuracy vs adaptive-quad reference. Writes `benchmark_phase6_results.csv`. Usage: `conda run -n inferences3 python intervalinf/rough_work/benchmark_phase6_comparison.py` |
