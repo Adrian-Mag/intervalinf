@@ -247,16 +247,16 @@ All dataclasses support `.copy(**overrides)`.  `IntegrationConfig.method` accept
 - **Base:** `pygeoinf.HilbertSpace`
 - **Mathematical space:** $L^2([a,b]; w)$ with inner product $\langle u, v \rangle = \int_a^b u(x)v(x)w(x)\,dx$
 - **Constructor:** `Lebesgue(dim, function_domain, /, *, basis=None, weight=None, integration_config=None, parallel_config=None)`
-  - `dim`: Dimension of the finite-dimensional approximation
+  - `dim`: Number of basis functions used only in basis-backed workflows; may be `0` in basis-free mode
   - `function_domain`: `IntervalDomain`
-  - `basis`: `'sine'` | `'cosine'` | `'fourier'` | `'DN'` | `'ND'` | `'hat'` | `'none'` | list of callables | `None` (defaults to `'none'`)
+  - `basis`: `'sine'` | `'cosine'` | `'fourier'` | `'DN'` | `'ND'` | `'hat'` | `'none'` | list of callables | `None` (defaults to `'none'`, i.e. basis-free functional mode)
   - `weight`: Optional weight function $w(x)$
   - `integration_config`: `IntegrationConfig` or `LebesgueIntegrationConfig`
   - `parallel_config`: `ParallelConfig` or `LebesgueParallelConfig`
 
 | Property | Description |
 |---|---|
-| `dim` | Finite dimension |
+| `dim` | Basis count for basis-backed operations; does not control direct callable/integration-only workflows |
 | `function_domain` | The `IntervalDomain` |
 | `metric` | Gram matrix $G_{ij} = \langle \phi_i, \phi_j \rangle$ (cached) |
 | `integration` | `LebesgueIntegrationConfig` |
@@ -945,7 +945,7 @@ These scripts are NOT part of the test suite; they measure runtime performance a
 
 | Script | Purpose |
 |---|---|
-| `rough_work/benchmark_dli_solvers.py` | End-to-end DLI convex optimisation benchmark across `ProximalBundleMethod`, `LevelBundleMethod`, `ChambollePockSolver`, `SmoothedLBFGSSolver` with `SOLAOperator`-backed problems; measures per-solver wall time and convergence. |
+| `rough_work/benchmark_dli_solvers.py` | End-to-end DLI convex optimisation benchmark across `ProximalBundleMethod`, `LevelBundleMethod`, `ChambollePockSolver`, `SmoothedLBFGSSolver` with `SOLAOperator`-backed problems; measures per-solver wall time and convergence. Uses a process-based timeout wrapper (`multiprocessing`, Linux `fork`) so long-running solver calls inside C/Fortran extensions are actually terminated at the requested wall-clock limit. |
 | `rough_work/benchmark_sola_baseline.py` | **SOLAOperator baseline benchmark (Phase 2).** Separates pure SOLA microbenchmarks from downstream workflow timings. Measures forward `G(f)`, adjoint `G*(y)`, and `DualMasterCostFunction.value_and_subgradient(lam)` across a parameter matrix using integration method (`simpson`, `trapz`), `n_points` (200–2000), $N_d$ (1–200), $N_p$ (0–20 for downstream hotspot scenarios), and kernel source (`sine_provider`, `callable`, `bump_provider`). The ambient `Lebesgue` basis dimension is held fixed as an implementation detail rather than swept as a primary SOLA axis. Outputs CSV to stdout. Usage: `conda run -n inferences3 python intervalinf/rough_work/benchmark_sola_baseline.py > results.csv` |
 | `rough_work/benchmark_phase5.py` | **Phase 5 repeated-workload benchmark.** Compares `cache_kernels=True` (warm calls reuse `_kernel_eval_cache`) vs `cache_kernels=False` (cold, recomputes evals every call) over N_REPS=50 distinct input functions. Sweeps $N_d$ ∈ {5,10,20,50,100,200} with n_points=1000 (Simpson). Measured speedup: 1.6x–5.2x. Usage: `conda run -n inferences3 python intervalinf/rough_work/benchmark_phase5.py` |
 | `rough_work/benchmark_phase6_comparison.py` | **Phase 6 end-to-end comparison benchmark.** Three-way comparison: `_apply_kernels_generic` (Phase 2 baseline path), Phase 4 batched fast path, and Phase 5 warm-cached path. Also validates adjoint consistency and accuracy vs adaptive-quad reference. Writes `benchmark_phase6_results.csv`. Usage: `conda run -n inferences3 python intervalinf/rough_work/benchmark_phase6_comparison.py` |

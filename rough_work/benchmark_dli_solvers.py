@@ -18,9 +18,8 @@ Problem sizes:
 from __future__ import annotations
 
 import time
-import signal
-import contextlib
 import textwrap
+import multiprocessing as mp
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -50,26 +49,46 @@ from pygeoinf.convex_optimisation import (
 )
 
 # ---------------------------------------------------------------------------
-# Timeout context manager (POSIX only)
+# Process-based timeout
 # ---------------------------------------------------------------------------
 
 class _TimeoutError(Exception):
     pass
 
 
-@contextlib.contextmanager
-def time_limit(seconds: float):
-    """Raise _TimeoutError if the block takes longer than *seconds*."""
-    def _handler(signum, frame):
-        raise _TimeoutError(f"Timed out after {seconds}s")
-
-    old = signal.signal(signal.SIGALRM, _handler)
-    signal.setitimer(signal.ITIMER_REAL, seconds)
+def _worker(fn, args, result_queue):
+    """Target for the worker process: put (result,) or (exception,) on the queue."""
     try:
-        yield
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, old)
+        result_queue.put(("ok", fn(*args)))
+    except Exception as exc:  # noqa: BLE001
+        result_queue.put(("err", exc))
+
+
+def run_with_timeout(fn, args, seconds: float):
+    """Run fn(*args) in a child process, kill it if it exceeds *seconds*.
+
+    Returns the function's return value, or raises _TimeoutError / the
+    original exception as appropriate.
+
+    Unlike signal.SIGALRM, this reliably interrupts C extensions (numpy,
+    scipy, OSQP, etc.) because it terminates the whole child process.
+    """
+    ctx = mp.get_context("fork")   # fork is fastest on Linux; avoids re-importing
+    q = ctx.Queue()
+    p = ctx.Process(target=_worker, args=(fn, args, q), daemon=True)
+    p.start()
+    p.join(seconds)
+    if p.is_alive():
+        p.terminate()
+        p.join(1)
+        if p.is_alive():
+            p.kill()
+            p.join()
+        raise _TimeoutError(f"Timed out after {seconds}s")
+    status, payload = q.get_nowait()
+    if status == "err":
+        raise payload
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -102,12 +121,12 @@ def build_dli_problem(Nd: int, Np: int, *, dim_basis: int = 30, seed: int = 42):
         freq_range=(0.1, 10),
         random_state=seed,
     )
-    G = SOLAOperator(M, D, kernels=normal_modes, integration_config=sola_cfg)
+    G = SOLAOperator(M, D, kernels=normal_modes, integration_config=sola_cfg, cache_kernels=True)
 
     width = min(0.3, 0.8 / max(Np, 1))
     centers = np.linspace(domain.a + width / 2, domain.b - width / 2, Np)
     bump_provider = BumpFunctionProvider(M, centers=centers, default_width=width)
-    T = SOLAOperator(M, P, kernels=bump_provider, integration_config=sola_cfg)
+    T = SOLAOperator(M, P, kernels=bump_provider, integration_config=sola_cfg, cache_kernels=True)
 
     # True model and synthetic data
     rng = np.random.default_rng(seed)
@@ -364,23 +383,30 @@ def run_benchmark(timeout: float = TIMEOUT_S) -> list[BenchmarkResult]:
             err_msg = ""
 
             try:
-                with time_limit(timeout):
-                    if method == "ProximalBundle":
-                        upper, lower, iters = _run_proximal_bundle(
-                            prob, qs_pos, qs_neg, lambda0
-                        )
-                    elif method == "LevelBundle":
-                        upper, lower, iters = _run_level_bundle(
-                            prob, qs_pos, qs_neg, lambda0
-                        )
-                    elif method == "ChambollePock":
-                        upper, lower, iters = _run_chambolle_pock(
-                            prob, qs_pos, qs_neg
-                        )
-                    elif method == "SmoothedLBFGSB":
-                        upper, lower, iters = _run_smoothed_lbfgsb(
-                            prob, qs_pos, qs_neg, lambda0
-                        )
+                if method == "ProximalBundle":
+                    upper, lower, iters = run_with_timeout(
+                        _run_proximal_bundle,
+                        (prob, qs_pos, qs_neg, lambda0),
+                        timeout,
+                    )
+                elif method == "LevelBundle":
+                    upper, lower, iters = run_with_timeout(
+                        _run_level_bundle,
+                        (prob, qs_pos, qs_neg, lambda0),
+                        timeout,
+                    )
+                elif method == "ChambollePock":
+                    upper, lower, iters = run_with_timeout(
+                        _run_chambolle_pock,
+                        (prob, qs_pos, qs_neg),
+                        timeout,
+                    )
+                elif method == "SmoothedLBFGSB":
+                    upper, lower, iters = run_with_timeout(
+                        _run_smoothed_lbfgsb,
+                        (prob, qs_pos, qs_neg, lambda0),
+                        timeout,
+                    )
 
             except _TimeoutError:
                 status = "timeout"

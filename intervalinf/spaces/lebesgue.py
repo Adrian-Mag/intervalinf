@@ -198,16 +198,27 @@ class Lebesgue(HilbertSpace):
     class, using Function objects as the Vector type. It provides:
 
     - L² inner product and norm via integration
-    - Basis function management (Fourier, hat functions, etc.)
+    - Basis-free functional operations on callable Function objects
+    - Optional basis function management (Fourier, hat functions, etc.)
     - Function evaluation and coefficient transformations
     - Proper dual space relationships via Riesz representation
     - Full integration with pygeoinf operators and linear forms
 
     The mathematical foundation is the Lebesgue space L²([a,b]) with the
-    standard inner product defined by integration.
+    standard inner product defined by integration. Computationally, the class
+    supports two modes:
+
+    1. Basis-free mode (`basis='none'` or `basis=None`), where functions are
+       manipulated directly through evaluation and quadrature without an
+       explicit finite-dimensional basis representation.
+    2. Basis-backed mode, where `dim` basis functions are used for projection,
+       coefficient transforms, Gram matrices, and related spectral/FEM-style
+       workflows.
 
     Attributes:
-        dim: Dimension of the finite-dimensional approximation.
+        dim: Number of basis functions available when a basis-backed workflow
+            is used. In basis-free mode this can be zero and does not control
+            direct function-evaluation/integration operations.
         function_domain: The IntervalDomain [a, b].
         integration: Hierarchical integration configuration.
         parallel: Hierarchical parallelization configuration.
@@ -216,10 +227,15 @@ class Lebesgue(HilbertSpace):
         >>> from intervalinf.core import IntervalDomain
         >>> from intervalinf.spaces import Lebesgue
         >>> domain = IntervalDomain(0, 1)
+        >>> space = Lebesgue(0, domain, basis=None)
+        >>> # Use callable Functions directly in a basis-free workflow
+        >>> f = Function(space, evaluate_callable=lambda x: x**2)
+        >>> norm = space.norm(f)
+
+        >>> # Or opt into a basis-backed representation
         >>> space = Lebesgue(50, domain, basis='fourier')
-        >>> # Create a function in this space
+        >>> # Create a function from basis coefficients
         >>> f = space.from_components(np.random.randn(50))
-        >>> # Compute L² norm
         >>> norm = space.norm(f)
     """
 
@@ -244,14 +260,16 @@ class Lebesgue(HilbertSpace):
         Initialize a Lebesgue space L²([a,b]).
 
         Args:
-            dim: Dimension of the finite-dimensional approximation space.
+            dim: Number of basis functions for basis-backed workflows.
+                This may be zero when using the space in basis-free mode with
+                `basis=None`/`'none'`.
             function_domain: IntervalDomain object specifying [a,b] and
                 boundary conditions.
             basis: Basis specification, can be:
                 - str: 'fourier', 'hat', 'sine', 'cosine', 'DN', 'ND', etc.
-                - str: 'none' (creates baseless space for temporary use)
+                - str: 'none' (basis-free functional mode)
                 - list: [func1, func2, ...] (custom callable functions)
-                - None: defaults to 'none'
+                - None: defaults to 'none' (basis-free functional mode)
             weight: Optional weight function w(x) for weighted L² space.
             integration_config: Hierarchical integration configuration.
                 Can be IntegrationConfig (same for all) or
@@ -259,8 +277,12 @@ class Lebesgue(HilbertSpace):
             parallel_config: Hierarchical parallelization configuration.
 
         Example:
-            >>> # Simple usage with defaults
-            >>> space = Lebesgue(50, domain)
+            >>> # Basis-free functional usage
+            >>> space = Lebesgue(0, domain, basis=None)
+            >>> f = Function(space, evaluate_callable=lambda x: x)
+            >>> value = space.norm(f)
+
+            >>> # Basis-backed usage
             >>> space = Lebesgue(50, domain, basis='sine')
 
             >>> # With hierarchical configs
@@ -307,7 +329,7 @@ class Lebesgue(HilbertSpace):
 
     @property
     def dim(self) -> int:
-        """The finite dimension of the space."""
+        """Number of basis functions configured for basis-backed operations."""
         return self._dim
 
     # ================================================================
