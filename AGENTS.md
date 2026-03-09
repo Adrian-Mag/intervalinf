@@ -35,16 +35,7 @@ python -m pytest tests/
 ## Theory Documents
 Mathematical foundations shared with pygeoinf (same paper library):
 - **`docs/agent-docs/theory/theory.txt`** — Main theory document "DLI as Convex Analysis problems"
-- **`docs/agent-docs/theory/`** — 18 PDF research papers
-
-## Package Quick References
-All files matching `docs/agent-docs/active-plans/*-reference.md` are **condensed reference documents** that agents **must read first** before exploring individual source files.
-
-**Read rule:** Before exploring any source files, read every `*-reference.md` in `docs/agent-docs/active-plans/`.
-- If reference files exist → use them; only read individual source files for details they don't cover.
-- If no reference files exist → proceed with normal file exploration.
-
-**Update rule:** After changes, **update all `*-reference.md` files** to reflect additions, removals, or modifications. Stale references are actively harmful.
+- **`docs/agent-docs/theory/`** — 19 PDF research papers
 
 ## Related Packages
 **pygeoinf** at `../pygeoinf/`
@@ -53,9 +44,11 @@ All files matching `docs/agent-docs/active-plans/*-reference.md` are **condensed
 - **intervalinf provides concrete spaces for pygeoinf examples**
 
 ## Package Quick References
-All files matching `docs/agent-docs/references/*-reference.md` are **condensed reference documents** that agents **must read first** before exploring individual source files. Currently: `intervalinf-reference.md`
+All files matching `docs/agent-docs/references/living/*-reference.md` are **condensed reference documents** that agents **must read first** before exploring individual source files. Currently: `docs/agent-docs/references/living/intervalinf-reference.md`
 
-**Read rule:** Before exploring any source files, read every `*-reference.md` in `docs/agent-docs/references/`.
+**Read rule:** Before exploring any source files, read every `*-reference.md` in `docs/agent-docs/references/living/`.
+- If reference files exist → use them; only read individual source files for details they don't cover.
+- If no reference files exist → proceed with normal file exploration.
 
 **Update rule:** After changes, **update all `*-reference.md` files** to reflect additions, removals, or modifications. Stale references are actively harmful.
 

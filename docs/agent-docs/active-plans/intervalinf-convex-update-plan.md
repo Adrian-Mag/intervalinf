@@ -86,13 +86,14 @@ needed — the pygeoinf classes automatically use whichever inner product the sp
 
 ---
 
-## Phase 4: Update reference files ⬜
+## Phase 4: Update reference files ✅
 
-**Status:** ⬜ Not started
+**Status:** ✅ Complete (2026-03-09)
 
-**Objective:** Update `intervalinf/plans/intervalinf-reference.md` to document
-the fixed sobolev methods and the new `convex_analysis.py` module.
-Update `pygeoinf/plans/pygeoinf-reference.md` for any corrections found during this work.
+**Objective:** Update `docs/agent-docs/references/living/intervalinf-reference.md` to document
+the fixed Sobolev methods and related package reference updates.
+No `pygeoinf` living-reference changes were required for this phase.
+Phase 4 reference work was applied incrementally on multiple dates and formally closed on 2026-03-09.
 
 ---
 
@@ -105,3 +106,4 @@ Update `pygeoinf/plans/pygeoinf-reference.md` for any corrections found during t
 | 2026-02-19 | Phase 2 | Bumped `pygeoinf>=1.3.3` → `>=1.4.2` in `pyproject.toml`; 279/279 pass |
 | 2026-02-18 | Phase 4 | Updated `intervalinf-reference.md` (Sobolev section) to reflect fixed imports and new method docs |
 | 2026-02-19 | Phase 4 | Updated `intervalinf-reference.md` pygeoinf dependency version |
+| 2026-03-09 | Phase 4 | Marked Phase 4 complete and aligned the plan paths with the current living-reference location |

@@ -15,7 +15,7 @@ This folder contains **living reference documents** and **legacy archives** for 
 ### `legacy/`
 **Archived artifacts: superseded plans and research reports.**
 
-Currently empty — will accumulate as plans complete.
+Contains archive subdirectories for legacy research reports and superseded plan artifacts.
 
 ---
 
@@ -30,7 +30,7 @@ Currently empty — will accumulate as plans complete.
 After implementing features:
 1. Open `living/intervalinf-reference.md`
 2. Update affected sections (new classes, changed signatures, new files, patterns)
-3. Add timestamp: `<!-- Last updated: YYYY-MM-DD by Sisyphus -->`
+3. Update the document's existing last-updated metadata in the style already used by the file
 4. Commit with plan reference
 
 ### Archiving Artifacts

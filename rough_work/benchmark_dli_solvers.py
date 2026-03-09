@@ -43,6 +43,7 @@ from pygeoinf.convex_optimisation import (
     ChambollePockSolver,
     SmoothedLBFGSSolver,
     SmoothedDualMaster,
+    OSQPQPSolver,
     solve_support_values,
     solve_primal_feasibility,
     best_available_qp_solver,
@@ -218,7 +219,7 @@ class BenchmarkResult:
 # Individual method runners
 # ---------------------------------------------------------------------------
 
-TIMEOUT_S = 120.0   # 2 minutes per method/size combination
+TIMEOUT_S = 1800.0   # 30 minutes per method/size combination
 
 
 def _run_proximal_bundle(prob: dict, qs_pos, qs_neg, lambda0) -> tuple:
@@ -227,10 +228,10 @@ def _run_proximal_bundle(prob: dict, qs_pos, qs_neg, lambda0) -> tuple:
         None,  # oracle set per-direction inside solve_support_values
         rho0=1.0,
         rho_factor=2.0,
-        tolerance=1e-4,
-        max_iterations=200,
-        bundle_size=30,
-        qp_solver=qp_solver,
+        tolerance=1e-3,
+        max_iterations=1000,
+        bundle_size=100,
+        qp_solver=OSQPQPSolver(),  # Use OSQP directly for the proximal step, to avoid overhead of generic QP solver selection in ProximalBundleMethod
     )
     D, P, M, G, T = prob["D"], prob["P"], prob["M"], prob["G"], prob["T"]
     cost = DualMasterCostFunction(
@@ -343,14 +344,14 @@ def _run_smoothed_lbfgsb(prob: dict, qs_pos, qs_neg, lambda0) -> tuple:
 SIZES = {
     "tiny":   (1, 1),
     "small":  (5, 2),
-    "medium": (50, 20),
+    "medium - small": (50, 20),
+    "medium": (100, 20),
+    "medium - large": (200, 20),
+    "large":  (500, 20)
 }
 
 METHODS = [
     "ProximalBundle",
-    "LevelBundle",
-    "ChambollePock",
-    "SmoothedLBFGSB",
 ]
 
 
