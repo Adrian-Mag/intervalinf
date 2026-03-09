@@ -15,7 +15,7 @@ Archived plans and phase summaries from finished projects.
 
 - **Purpose:** Historical record, knowledge base, git commit traceability
 - **Retention:** Keep indefinitely; useful for understanding past design decisions
-- **Current contents:** SOLA speedup phase-complete records
+- **Current contents:** SOLA speedup phase-complete records and the intervalinf agent-docs audit Phase 1 completion record
 
 ### `references/`
 Exploration reports, research summaries, and **living reference documents**.
