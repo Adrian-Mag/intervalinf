@@ -2144,3 +2144,158 @@ class TestPhase2Instrumentation:
         G.reset_stats()
         for key, val in G.stats.items():
             assert val == 0 or val == 0.0, f"After reset_stats, {key}={val} should be 0"
+
+
+# ---------------------------------------------------------------------------
+# 15. Phase 4 – Private support-mesh helper (_build_support_mesh)
+# ---------------------------------------------------------------------------
+
+class TestBuildSupportMesh:
+    """
+    Unit tests for SOLAOperator._build_support_mesh.
+
+    The helper reproduces IntervalDomain.integrate proportional-allocation
+    meshing semantics for support lists without running the integrand, so the
+    same mesh can be reused across multiple function evaluations in future
+    batched support-restricted kernel passes (Phase 6 preparation).
+
+    Five canonical scenarios verified:
+    1. Single-interval support → mesh equals np.linspace exactly.
+    2. Multi-interval proportional allocation + deterministic remainder
+       distribution (longer interval wins the extra point).
+    3. Effective-total enforcement when n_points < 3*n_sub.
+    4. Stable tie-break on equal fractional remainders (first index wins).
+    5. Adjacent intervals keep the duplicated shared boundary point.
+    """
+
+    # ------------------------------------------------------------------
+    # Ancillary: empty support
+    # ------------------------------------------------------------------
+
+    def test_empty_support_returns_empty_array(self):
+        """Empty support list returns an empty array."""
+        xs = SOLAOperator._build_support_mesh([], 100)
+        assert isinstance(xs, np.ndarray)
+        assert len(xs) == 0
+
+    # ------------------------------------------------------------------
+    # 1. Single interval → plain linspace
+    # ------------------------------------------------------------------
+
+    def test_single_interval_matches_linspace(self):
+        """Single-interval list: mesh equals np.linspace(a, b, n_points) exactly.
+
+        n_sub=1 → effective_total = max(100, 3) = 100;
+        raw=[100], alloc=[100], remainder=0.
+        """
+        support = [(0.0, 1.0)]
+        xs = SOLAOperator._build_support_mesh(support, 100)
+        expected = np.linspace(0.0, 1.0, 100)
+        assert_allclose(xs, expected, rtol=0, atol=0)
+
+    def test_single_interval_small_n_points_clipped_to_three(self):
+        """n_points=1 → effective_total=max(1,3)=3, alloc=[max(3,3)]=3."""
+        support = [(0.5, 0.8)]
+        xs = SOLAOperator._build_support_mesh(support, 1)
+        expected = np.linspace(0.5, 0.8, 3)
+        assert_allclose(xs, expected, rtol=0, atol=0)
+
+    # ------------------------------------------------------------------
+    # 2. Multi-interval: proportional allocation + remainder distribution
+    # ------------------------------------------------------------------
+
+    def test_two_equal_intervals_split_evenly(self):
+        """Two equal-length intervals with even n_points split into halves.
+
+        lengths=[0.5, 0.5], n_points=100 →
+        effective_total=100, raw=[50.0, 50.0], alloc=[50,50], remainder=0.
+        """
+        support = [(0.0, 0.5), (0.5, 1.0)]
+        xs = SOLAOperator._build_support_mesh(support, 100)
+        expected = np.concatenate([
+            np.linspace(0.0, 0.5, 50),
+            np.linspace(0.5, 1.0, 50),
+        ])
+        assert_allclose(xs, expected, rtol=0, atol=0)
+
+    def test_unequal_intervals_proportional_with_correct_remainder(self):
+        """Unequal intervals: longer interval gets larger allocation; remainder
+        goes to interval with highest fractional part.
+
+        support=[(0,1),(1,3)], lengths=[1,2], n_points=10 →
+        effective_total=10, raw=[10/3≈3.33, 20/3≈6.67], alloc=[3,6],
+        remainder=1; fracs desc=[(0.67,1),(0.33,0)] → alloc[1]+=1 → [3,7].
+        """
+        support = [(0.0, 1.0), (1.0, 3.0)]
+        xs = SOLAOperator._build_support_mesh(support, 10)
+        expected = np.concatenate([
+            np.linspace(0.0, 1.0, 3),
+            np.linspace(1.0, 3.0, 7),
+        ])
+        assert_allclose(xs, expected, rtol=0, atol=0)
+        assert len(xs) == 10
+
+    # ------------------------------------------------------------------
+    # 3. Effective-total enforcement when n_points < 3*n_sub
+    # ------------------------------------------------------------------
+
+    def test_effective_total_enforced_when_n_points_too_small(self):
+        """n_points < 3*n_sub → effective_total raised to 3*n_sub.
+
+        3 equal sub-intervals, n_points=5 < 9=3*3 → effective_total=9;
+        alloc=[3,3,3], total mesh length=9.
+        """
+        support = [(0.0, 1/3), (1/3, 2/3), (2/3, 1.0)]
+        xs = SOLAOperator._build_support_mesh(support, 5)
+        assert len(xs) == 9  # 3 * n_sub
+        expected = np.concatenate([
+            np.linspace(0.0, 1/3, 3),
+            np.linspace(1/3, 2/3, 3),
+            np.linspace(2/3, 1.0, 3),
+        ])
+        assert_allclose(xs, expected, rtol=1e-15)
+
+    # ------------------------------------------------------------------
+    # 4. Stable tie-breaker on equal fractional remainders
+    # ------------------------------------------------------------------
+
+    def test_stable_tiebreak_first_index_wins(self):
+        """Equal fractional parts: Python stable sort gives remainder to index 0.
+
+        Two equal-length intervals, n_points=7:
+        effective_total=max(7,6)=7, raw=[3.5, 3.5], alloc=[3,3], remainder=1.
+        Both fracs are exactly 0.5 in IEEE-754, so stable sort preserves the
+        original order and alloc[0] wins the extra point → alloc=[4,3].
+        """
+        support = [(0.0, 0.5), (0.5, 1.0)]
+        xs = SOLAOperator._build_support_mesh(support, 7)
+        expected = np.concatenate([
+            np.linspace(0.0, 0.5, 4),   # index 0 gets the extra point
+            np.linspace(0.5, 1.0, 3),
+        ])
+        assert_allclose(xs, expected, rtol=0, atol=0)
+        assert len(xs) == 7
+
+    # ------------------------------------------------------------------
+    # 5. Adjacent intervals preserve duplicated shared boundary point
+    # ------------------------------------------------------------------
+
+    def test_adjacent_intervals_boundary_point_duplicated(self):
+        """Shared boundary between adjacent sub-intervals appears exactly twice
+        in the concatenated mesh (no deduplication)."""
+        support = [(0.0, 0.5), (0.5, 1.0)]
+        xs = SOLAOperator._build_support_mesh(support, 100)
+        n_at_boundary = int(np.sum(np.abs(xs - 0.5) < 1e-15))
+        assert n_at_boundary == 2, (
+            f"Expected 0.5 to appear exactly twice; found {n_at_boundary} times"
+        )
+
+    def test_three_intervals_two_shared_boundaries_each_duplicated(self):
+        """Three adjacent sub-intervals: each internal boundary appears twice."""
+        support = [(0.0, 1/3), (1/3, 2/3), (2/3, 1.0)]
+        xs = SOLAOperator._build_support_mesh(support, 30)
+        b1, b2 = 1/3, 2/3
+        n_b1 = int(np.sum(np.abs(xs - b1) < 1e-15))
+        n_b2 = int(np.sum(np.abs(xs - b2) < 1e-15))
+        assert n_b1 == 2, f"Boundary 1/3 found {n_b1} times, expected 2"
+        assert n_b2 == 2, f"Boundary 2/3 found {n_b2} times, expected 2"

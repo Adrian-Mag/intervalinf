@@ -5,6 +5,7 @@ integrates input functions against a set of kernel functions,
 producing a vector of data values.
 """
 
+import math
 import time
 from typing import Union, Optional, List, Callable, TYPE_CHECKING
 
@@ -334,6 +335,72 @@ class SOLAOperator(LinearOperator):
             n_points = max(3, self.integration.n_points)
             self._shared_mesh = np.linspace(domain.a, domain.b, n_points)
         return self._shared_mesh
+
+    @staticmethod
+    def _build_support_mesh(support: list, n_points: int) -> np.ndarray:
+        """Build a quadrature mesh over a list of support subintervals.
+
+        Reproduces the proportional-allocation and remainder-distribution
+        logic of :meth:`IntervalDomain.integrate` for support lists so that
+        the same mesh can be computed once and reused across multiple function
+        evaluations in future batched support-restricted kernel passes.
+
+        Parameters
+        ----------
+        support : list of (float, float)
+            List of ``(a_i, b_i)`` subinterval pairs.  An empty list is
+            allowed and returns an empty array.
+        n_points : int
+            Desired total number of quadrature points.
+
+        Returns
+        -------
+        ndarray
+            Concatenation of per-subinterval ``np.linspace(a_i, b_i, alloc_i)``
+            meshes.  Adjacent intervals share a boundary value (duplicated
+            endpoints are kept, not removed).  Returns an empty array when
+            *support* is empty.
+
+        Notes
+        -----
+        Allocation algorithm (mirrors ``IntervalDomain.integrate``):
+
+        * ``effective_total = max(n_points, 3 * n_sub)``
+        * ``raw_i = effective_total × L_i / total_length``
+        * ``alloc_i = max(3, floor(raw_i))``
+        * Remaining points distributed by descending fractional part with
+          stable original-order tie-break.
+        """
+        if not support:
+            return np.empty(0)
+
+        n_sub = len(support)
+        lengths = [float(b) - float(a) for a, b in support]
+        total_length = sum(lengths)
+
+        effective_total = max(n_points, 3 * n_sub)
+        raw = [effective_total * (L / total_length) for L in lengths]
+        alloc = [max(3, int(math.floor(r))) for r in raw]
+        allocated = sum(alloc)
+
+        remainder = effective_total - allocated
+        if remainder > 0:
+            fracs = sorted(
+                [(raw[i] - math.floor(raw[i]), i) for i in range(n_sub)],
+                key=lambda x: x[0],
+                reverse=True,
+            )
+            idx = 0
+            while remainder > 0:
+                alloc[fracs[idx % n_sub][1]] += 1
+                remainder -= 1
+                idx += 1
+
+        parts = [
+            np.linspace(float(support[i][0]), float(support[i][1]), alloc[i])
+            for i in range(n_sub)
+        ]
+        return np.concatenate(parts)
 
     def _apply_kernels_fixed_grid(self, func: 'Function') -> np.ndarray:
         """
