@@ -2299,3 +2299,799 @@ class TestBuildSupportMesh:
         n_b2 = int(np.sum(np.abs(xs - b2) < 1e-15))
         assert n_b1 == 2, f"Boundary 1/3 found {n_b1} times, expected 2"
         assert n_b2 == 2, f"Boundary 2/3 found {n_b2} times, expected 2"
+
+
+# ---------------------------------------------------------------------------
+# 16. Phase 5 – Grouped support-restricted batched integration
+# ---------------------------------------------------------------------------
+
+class TestPhase5GroupedSupportBatching:
+    """
+    Regression tests for the Phase 5 grouped support-restricted batched path.
+
+    Compact-support kernels that share the same intersected support are now
+    integrated in a single grouped batched pass rather than one at a time.
+
+    Behavioral contracts:
+    1. Correct values: grouped kernels give analytic integrals.
+    2. Multi-interval support: grouped fixed-grid result matches generic path
+       at tight tolerance.
+    3. No cache pollution: grouped kernels do NOT appear in _kernel_eval_cache.
+    4. Stats coherence: compact_support_fallbacks counts N kernels in a group
+       (per-kernel, not per-group), so N kernels → N increments.
+    5. Batching proof: _build_support_mesh is called once per unique support
+       group, not once per kernel.
+    6. Complex dtype preservation in the grouped support-restricted path.
+    """
+
+    # ------------------------------------------------------------------
+    # 1. Correct values for shared-support groups
+    # ------------------------------------------------------------------
+
+    def test_two_shared_support_kernels_analytic(self, lebesgue_space, unit_domain):
+        """Two kernels with the same compact support give correct analytic integrals.
+
+        k0(x) = 1 on [0.2, 0.8],  k1(x) = x on [0.2, 0.8].
+        f = 1 with support [(0.0, 1.0)].
+
+        G(f)[0] = ∫_{0.2}^{0.8} 1 dx = 0.6
+        G(f)[1] = ∫_{0.2}^{0.8} x dx = (0.8² − 0.2²) / 2 = 0.3
+        """
+        support = [(0.2, 0.8)]
+        k0 = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=support,
+        )
+        k1 = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.asarray(x),
+            support=support,
+        )
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=[(0.0, 1.0)],
+        )
+        D = EuclideanSpace(2)
+        cfg = IntegrationConfig(method="simpson", n_points=2000)
+        G = SOLAOperator(lebesgue_space, D, kernels=[k0, k1], integration_config=cfg)
+
+        result = G(f)
+        assert_allclose(result[0], 0.6, rtol=1e-4)
+        assert_allclose(result[1], 0.3, rtol=1e-4)
+
+    def test_three_shared_support_kernels_match_generic(
+        self, lebesgue_space, unit_domain
+    ):
+        """Three kernels with identical support match the generic path."""
+        support = [(0.3, 0.7)]
+        kernels = [
+            Function(
+                unit_domain,
+                evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+                support=support,
+            ),
+            Function(unit_domain, evaluate_callable=lambda x: np.asarray(x), support=support),
+            Function(
+                unit_domain,
+                evaluate_callable=lambda x: np.sin(np.pi * np.asarray(x)),
+                support=support,
+            ),
+        ]
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.asarray(x) + 0.5,
+            support=[(0.0, 1.0)],
+        )
+        D = EuclideanSpace(3)
+        cfg = IntegrationConfig(method="simpson", n_points=3000)
+        G = SOLAOperator(lebesgue_space, D, kernels=kernels, integration_config=cfg)
+
+        result = G(f)
+        generic = G._apply_kernels_generic(f)
+        assert_allclose(result, generic, rtol=1e-6)
+
+    def test_shared_support_trapz_matches_analytic(self, lebesgue_space, unit_domain):
+        """Grouped path works with 'trapz' method as well as 'simpson'."""
+        support = [(0.1, 0.9)]
+        k = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=support,
+        )
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=[(0.0, 1.0)],
+        )
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=[k],
+            integration_config=IntegrationConfig(method="trapz", n_points=3000),
+        )
+        result = G(f)
+        assert_allclose(result[0], 0.8, rtol=1e-3)
+
+    # ------------------------------------------------------------------
+    # 2. Multi-interval support
+    # ------------------------------------------------------------------
+
+    def test_multi_interval_support_single_kernel_matches_generic(
+        self, lebesgue_space, unit_domain
+    ):
+        """Multi-interval compact support: fixed-grid result matches generic.
+
+        Kernel supported on [(0.1, 0.4), (0.6, 0.9)], value 1.0 inside.
+        f = 1 with support [(0.0, 1.0)].
+
+        Generic result = ∫_{0.1}^{0.4} 1 dx + ∫_{0.6}^{0.9} 1 dx = 0.3 + 0.3 = 0.6
+        """
+        support = [(0.1, 0.4), (0.6, 0.9)]
+
+        def k_callable(x):
+            x_arr = np.asarray(x)
+            in_s1 = (x_arr >= 0.1) & (x_arr <= 0.4)
+            in_s2 = (x_arr >= 0.6) & (x_arr <= 0.9)
+            return np.where(in_s1 | in_s2, 1.0, 0.0)
+
+        k = Function(unit_domain, evaluate_callable=k_callable, support=support)
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=[(0.0, 1.0)],
+        )
+        D = EuclideanSpace(1)
+        cfg = IntegrationConfig(method="simpson", n_points=3000)
+        G = SOLAOperator(lebesgue_space, D, kernels=[k], integration_config=cfg)
+
+        result = G(f)
+        generic = G._apply_kernels_generic(f)
+        assert_allclose(result, generic, rtol=1e-6, atol=1e-12)
+        assert_allclose(result[0], 0.6, rtol=1e-4)
+
+    def test_multi_interval_support_two_kernels_match_generic(
+        self, lebesgue_space, unit_domain
+    ):
+        """Two kernels with DIFFERENT multi-interval supports both match generic."""
+        support_a = [(0.1, 0.4), (0.6, 0.9)]
+        support_b = [(0.2, 0.5), (0.7, 0.95)]
+
+        def make_indicator(supp):
+            def k_callable(x):
+                x_arr = np.asarray(x)
+                mask = np.zeros_like(x_arr, dtype=float)
+                for a_s, b_s in supp:
+                    mask[(x_arr >= a_s) & (x_arr <= b_s)] = 1.0
+                return mask
+            return k_callable
+
+        ka = Function(
+            unit_domain, evaluate_callable=make_indicator(support_a), support=support_a
+        )
+        kb = Function(
+            unit_domain, evaluate_callable=make_indicator(support_b), support=support_b
+        )
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=[(0.0, 1.0)],
+        )
+        D = EuclideanSpace(2)
+        cfg = IntegrationConfig(method="simpson", n_points=3000)
+        G = SOLAOperator(lebesgue_space, D, kernels=[ka, kb], integration_config=cfg)
+
+        result = G(f)
+        generic = G._apply_kernels_generic(f)
+        assert_allclose(result, generic, rtol=1e-6, atol=1e-12)
+
+    def test_multi_interval_two_kernels_same_support_match_generic(
+        self, lebesgue_space, unit_domain
+    ):
+        """Two kernels with identical multi-interval support are grouped and match generic."""
+        support = [(0.1, 0.3), (0.7, 0.9)]
+
+        def k0_callable(x):
+            x_arr = np.asarray(x)
+            return np.where(((x_arr >= 0.1) & (x_arr <= 0.3)) | ((x_arr >= 0.7) & (x_arr <= 0.9)), 1.0, 0.0)
+
+        def k1_callable(x):
+            x_arr = np.asarray(x)
+            return np.where(((x_arr >= 0.1) & (x_arr <= 0.3)) | ((x_arr >= 0.7) & (x_arr <= 0.9)), float(x_arr) if x_arr.ndim == 0 else x_arr, 0.0)
+
+        k0 = Function(unit_domain, evaluate_callable=k0_callable, support=support)
+        k1 = Function(unit_domain, evaluate_callable=lambda x: np.asarray(x), support=support)
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=[(0.0, 1.0)],
+        )
+        D = EuclideanSpace(2)
+        cfg = IntegrationConfig(method="simpson", n_points=3000)
+        G = SOLAOperator(lebesgue_space, D, kernels=[k0, k1], integration_config=cfg)
+
+        result = G(f)
+        generic = G._apply_kernels_generic(f)
+        assert_allclose(result, generic, rtol=1e-6, atol=1e-12)
+
+    # ------------------------------------------------------------------
+    # 3. No cache pollution after grouped batching
+    # ------------------------------------------------------------------
+
+    def test_grouped_support_kernels_not_in_eval_cache(
+        self, lebesgue_space, unit_domain
+    ):
+        """Grouped compact-support kernels must not populate _kernel_eval_cache."""
+        support = [(0.2, 0.8)]
+        k0 = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=support,
+        )
+        k1 = Function(unit_domain, evaluate_callable=lambda x: np.asarray(x), support=support)
+        k_full = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+        )
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=[(0.0, 1.0)],
+        )
+        D = EuclideanSpace(3)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[k0, k1, k_full],
+            cache_kernels=True,
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        _ = G(f)
+
+        assert G._kernel_eval_cache is not None
+        assert 0 not in G._kernel_eval_cache, \
+            "Grouped compact-support kernel 0 must NOT appear in eval cache"
+        assert 1 not in G._kernel_eval_cache, \
+            "Grouped compact-support kernel 1 must NOT appear in eval cache"
+        assert 2 in G._kernel_eval_cache, \
+            "Full-domain kernel 2 must appear in eval cache"
+
+    def test_grouped_support_result_identical_with_and_without_caching(
+        self, lebesgue_space, unit_domain
+    ):
+        """Grouped batching result is identical regardless of cache_kernels setting."""
+        support = [(0.3, 0.7)]
+        kernels = [
+            Function(unit_domain,
+                     evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+                     support=support),
+            Function(unit_domain, evaluate_callable=lambda x: np.asarray(x), support=support),
+        ]
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=[(0.0, 1.0)],
+        )
+        D = EuclideanSpace(2)
+        cfg = IntegrationConfig(method="simpson", n_points=2000)
+        G_cached = SOLAOperator(lebesgue_space, D, kernels=kernels, cache_kernels=True, integration_config=cfg)
+        G_nocache = SOLAOperator(lebesgue_space, D, kernels=kernels, cache_kernels=False, integration_config=cfg)
+
+        r_cached = G_cached(f)
+        r_nocache = G_nocache(f)
+        assert_allclose(r_cached, r_nocache, rtol=0, atol=0,
+                        err_msg="Grouped batching result differs with/without caching")
+
+    # ------------------------------------------------------------------
+    # 4. Stats coherence for grouped batching
+    # ------------------------------------------------------------------
+
+    def test_grouped_batching_fallbacks_count_per_kernel(
+        self, lebesgue_space, unit_domain
+    ):
+        """compact_support_fallbacks counts N kernels in a group, not 1 group.
+
+        Three kernels with the same support → compact_support_fallbacks == 3.
+        This verifies per-kernel counting is maintained in the grouped path.
+        """
+        support = [(0.2, 0.8)]
+        kernels = [
+            Function(unit_domain,
+                     evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+                     support=support),
+            Function(unit_domain, evaluate_callable=lambda x: np.asarray(x), support=support),
+            Function(unit_domain, evaluate_callable=lambda x: np.asarray(x) ** 2, support=support),
+        ]
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=[(0.0, 1.0)],
+        )
+        D = EuclideanSpace(3)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=kernels,
+            integration_config=IntegrationConfig(method="simpson", n_points=1000),
+        )
+        G.reset_stats()
+        _ = G(f)
+
+        s = G.stats
+        assert s["compact_support_fallbacks"] == 3, (
+            f"Expected compact_support_fallbacks=3 for 3 shared-support kernels; "
+            f"got {s['compact_support_fallbacks']}"
+        )
+        assert s["batched_fixed_grid_kernels"] == 0
+        assert s["disjoint_skips"] == 0
+
+    def test_grouped_batching_fallback_time_positive(
+        self, lebesgue_space, unit_domain
+    ):
+        """compact_support_fallback_time_total_s > 0 after grouped batched integration."""
+        support = [(0.2, 0.8)]
+        k = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=support,
+        )
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=[(0.0, 1.0)],
+        )
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=[k],
+            integration_config=IntegrationConfig(method="simpson", n_points=1000),
+        )
+        G.reset_stats()
+        _ = G(f)
+        assert G.stats["compact_support_fallback_time_total_s"] > 0.0
+
+    def test_grouped_and_full_domain_counter_split(self, lebesgue_space, unit_domain):
+        """Mix of grouped-support and full-domain kernels splits counters correctly.
+
+        Layout: 2 full-domain (batched) + 3 same-support (grouped fallback) + 1 disjoint.
+        Expected: batched=2, fallbacks=3, skips=1.
+        """
+        support = [(0.1, 0.4)]
+        kernels = [
+            Function(unit_domain, evaluate_callable=lambda x: np.asarray(x)),           # batched
+            Function(unit_domain, evaluate_callable=lambda x: 1 - np.asarray(x)),       # batched
+            Function(unit_domain,
+                     evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+                     support=support),                                                    # grouped
+            Function(unit_domain, evaluate_callable=lambda x: np.asarray(x), support=support),  # grouped
+            Function(unit_domain, evaluate_callable=lambda x: np.asarray(x)**2, support=support),  # grouped
+            Function(unit_domain,
+                     evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+                     support=[(0.7, 1.0)]),                                              # disjoint
+        ]
+        D = EuclideanSpace(len(kernels))
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=kernels,
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: np.asarray(x),
+                     support=[(0.0, 0.5)])
+        G.reset_stats()
+        _ = G(f)
+
+        s = G.stats
+        assert s["batched_fixed_grid_kernels"] == 2, f"Expected batched=2; got {s['batched_fixed_grid_kernels']}"
+        assert s["compact_support_fallbacks"] == 3, f"Expected fallbacks=3; got {s['compact_support_fallbacks']}"
+        assert s["disjoint_skips"] == 1, f"Expected skips=1; got {s['disjoint_skips']}"
+
+    # ------------------------------------------------------------------
+    # 5. Batching proof: f is evaluated once per support group, not per kernel
+    # ------------------------------------------------------------------
+
+    def test_shared_support_f_evaluated_once_per_group(
+        self, lebesgue_space, unit_domain
+    ):
+        """N kernels with the same single-interval support → f is evaluated once
+        on that group's restricted mesh, not once per kernel.
+
+        Before Phase 5: N kernels would require N separate domain.integrate calls
+        (each evaluating f internally).
+        After Phase 5: one _eval_on_mesh(func, xs_i) call per subinterval per group.
+        For a single-interval group: exactly 1 f evaluation regardless of N.
+        """
+        support = [(0.2, 0.8)]
+        N = 4
+        kernels = [
+            Function(
+                unit_domain,
+                evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+                support=support,
+            )
+            for _ in range(N)
+        ]
+        # Count vectorized callable-level invocations of f.
+        eval_calls: list = []
+
+        def f_callable(x):
+            eval_calls.append(1)
+            return np.ones_like(x) if isinstance(x, np.ndarray) else 1.0
+
+        f = Function(lebesgue_space, evaluate_callable=f_callable, support=[(0.0, 1.0)])
+        D = EuclideanSpace(N)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=kernels,
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        _ = G(f)
+
+        assert len(eval_calls) == 1, (
+            f"Expected f evaluated once for {N} same-support kernels in 1 group; "
+            f"got {len(eval_calls)}"
+        )
+
+    def test_two_different_supports_f_evaluated_twice(
+        self, lebesgue_space, unit_domain
+    ):
+        """Two kernels with different single-interval supports → f is evaluated
+        once per support group = twice total.
+        """
+        support_a = [(0.1, 0.4)]
+        support_b = [(0.6, 0.9)]
+        ka = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=support_a,
+        )
+        kb = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=support_b,
+        )
+        eval_calls: list = []
+
+        def f_callable(x):
+            eval_calls.append(1)
+            return np.ones_like(x) if isinstance(x, np.ndarray) else 1.0
+
+        f = Function(lebesgue_space, evaluate_callable=f_callable, support=[(0.0, 1.0)])
+        D = EuclideanSpace(2)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=[ka, kb],
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        _ = G(f)
+
+        assert len(eval_calls) == 2, (
+            f"Expected f evaluated twice (once per support group); got {len(eval_calls)}"
+        )
+
+    # ------------------------------------------------------------------
+    # 6. Complex dtype preservation
+    # ------------------------------------------------------------------
+
+    def test_grouped_support_restricted_complex_dtype_preserved(
+        self, lebesgue_space, unit_domain
+    ):
+        """Grouped compact-support path preserves complex dtype."""
+        support = [(0.25, 0.75)]
+        kernel = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.exp(1j * np.pi * np.asarray(x)),
+            support=support,
+        )
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=support,
+        )
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=[kernel],
+            integration_config=IntegrationConfig(method="simpson", n_points=2000),
+        )
+        result = G(f)
+        generic = G._apply_kernels_generic(f)
+        assert np.iscomplexobj(result), "Result should be complex-valued"
+        assert_allclose(result, generic, rtol=1e-10, atol=1e-12)
+
+    def test_two_grouped_complex_kernels_correct(
+        self, lebesgue_space, unit_domain
+    ):
+        """Two complex kernels in the same support group give correct complex results."""
+        support = [(0.0, 1.0)]
+        k0 = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.exp(1j * np.pi * np.asarray(x)),
+            support=support,
+        )
+        k1 = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.exp(-1j * np.pi * np.asarray(x)),
+            support=support,
+        )
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=support,
+        )
+        D = EuclideanSpace(2)
+        cfg = IntegrationConfig(method="simpson", n_points=3000)
+        G = SOLAOperator(lebesgue_space, D, kernels=[k0, k1], integration_config=cfg)
+
+        result = G(f)
+        generic = G._apply_kernels_generic(f)
+        assert np.iscomplexobj(result)
+        assert_allclose(result, generic, rtol=1e-8, atol=1e-12)
+
+    # ------------------------------------------------------------------
+    # 7. Equivalence with generic path for existing compact-support tests
+    # ------------------------------------------------------------------
+
+    def test_narrow_support_grouped_matches_generic(
+        self, lebesgue_space, unit_domain
+    ):
+        """Narrow compact support maintained via grouped path still matches generic."""
+        support = [(0.499, 0.501)]
+
+        def narrow_kernel(x):
+            x_arr = np.asarray(x)
+            return np.where((x_arr >= 0.499) & (x_arr <= 0.501), 1.0, 0.0)
+
+        kernel = Function(unit_domain, evaluate_callable=narrow_kernel, support=support)
+        f = Function(
+            lebesgue_space,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=support,
+        )
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=[kernel],
+            integration_config=IntegrationConfig(method="simpson", n_points=2000),
+        )
+        fast_result = G(f)
+        generic_result = G._apply_kernels_generic(f)
+        assert_allclose(fast_result, generic_result, rtol=1e-12, atol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# 17. Phase 5 fix – Lazy full-domain f-evaluation
+# ---------------------------------------------------------------------------
+
+
+class TestLazyFullDomainEvaluation:
+    """Guard tests for the review-blocker fix: full-domain mesh construction
+    and ``f(xs)`` evaluation are deferred until after kernel classification
+    and only computed when at least one full-domain kernel exists.
+
+    Behavioral contracts:
+    1. Disjoint-only workload: ``_shared_mesh`` stays ``None`` after forward call
+       (shared mesh never built → f never evaluated on full domain).
+    2. Support-only workload: ``_shared_mesh`` stays ``None`` after forward call.
+    3. Mixed workload (one full-domain kernel present): mesh IS built and f IS
+       evaluated (regression guard ensuring the fix does not break the batched path).
+    4. Correctness: disjoint-only and support-only results are still exact.
+    5. Support-only: f callable is called only on restricted meshes, never
+       on the full-domain mesh (verified by callable-level instrumentation).
+    """
+
+    # ------------------------------------------------------------------
+    # 1. Disjoint-only workload – mesh never built
+    # ------------------------------------------------------------------
+
+    def test_disjoint_only_shared_mesh_stays_none(
+        self, lebesgue_space, unit_domain
+    ):
+        """All kernels disjoint: _shared_mesh must still be None after the call."""
+        k = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=[(0.7, 1.0)],
+        )
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=[k],
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: np.asarray(x),
+                     support=[(0.0, 0.3)])
+
+        assert G._shared_mesh is None, "Pre-condition: mesh not built yet"
+        _ = G(f)
+        assert G._shared_mesh is None, (
+            "Shared mesh must not be built for a disjoint-only workload"
+        )
+
+    def test_disjoint_only_multiple_kernels_mesh_stays_none(
+        self, lebesgue_space, unit_domain
+    ):
+        """Multiple disjoint kernels: _shared_mesh still None after the call."""
+        D = EuclideanSpace(3)
+        kernels = [
+            Function(unit_domain,
+                     evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+                     support=[(0.7, 1.0)]),
+            Function(unit_domain,
+                     evaluate_callable=lambda x: np.asarray(x),
+                     support=[(0.8, 1.0)]),
+            Function(unit_domain,
+                     evaluate_callable=lambda x: np.asarray(x) ** 2,
+                     support=[(0.6, 1.0)]),
+        ]
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=kernels,
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: np.asarray(x),
+                     support=[(0.0, 0.2)])
+        _ = G(f)
+        assert G._shared_mesh is None, (
+            "Shared mesh must not be built when all kernels are disjoint"
+        )
+
+    # ------------------------------------------------------------------
+    # 2. Support-only workload – mesh never built
+    # ------------------------------------------------------------------
+
+    def test_support_only_shared_mesh_stays_none(
+        self, lebesgue_space, unit_domain
+    ):
+        """All kernels have compact (non-disjoint) support: _shared_mesh stays None."""
+        k = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=[(0.2, 0.8)],
+        )
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=[k],
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: np.asarray(x),
+                     support=[(0.0, 1.0)])
+
+        assert G._shared_mesh is None
+        _ = G(f)
+        assert G._shared_mesh is None, (
+            "Shared mesh must not be built for a support-only workload "
+            "(all kernels have compact support, none is full-domain)"
+        )
+
+    def test_support_only_multiple_kernels_mesh_stays_none(
+        self, lebesgue_space, unit_domain
+    ):
+        """Multiple compact-support kernels: _shared_mesh still None."""
+        D = EuclideanSpace(3)
+        kernels = [
+            Function(unit_domain,
+                     evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+                     support=[(0.1, 0.4)]),
+            Function(unit_domain, evaluate_callable=lambda x: np.asarray(x),
+                     support=[(0.2, 0.5)]),
+            Function(unit_domain, evaluate_callable=lambda x: np.asarray(x) ** 2,
+                     support=[(0.3, 0.6)]),
+        ]
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=kernels,
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: np.asarray(x),
+                     support=[(0.0, 1.0)])
+        _ = G(f)
+        assert G._shared_mesh is None, (
+            "Shared mesh must not be built when all kernels have compact support"
+        )
+
+    # ------------------------------------------------------------------
+    # 3. Mixed workload – mesh IS built (regression guard)
+    # ------------------------------------------------------------------
+
+    def test_mixed_workload_shared_mesh_is_built(
+        self, lebesgue_space, unit_domain
+    ):
+        """When at least one full-domain kernel is present, the shared mesh must
+        be constructed (regression guard: fix must not suppress the batched path)."""
+        k_full = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+        )
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=[k_full],
+            integration_config=IntegrationConfig(method="simpson", n_points=200),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: np.asarray(x))
+        assert G._shared_mesh is None
+        _ = G(f)
+        assert G._shared_mesh is not None, (
+            "Shared mesh must be built when a full-domain kernel is present"
+        )
+
+    # ------------------------------------------------------------------
+    # 4. Correctness – lazy path still gives exact/correct results
+    # ------------------------------------------------------------------
+
+    def test_disjoint_only_result_exactly_zero(
+        self, lebesgue_space, unit_domain
+    ):
+        """Disjoint workload gives exactly 0 (no numerical noise) even with lazy fix."""
+        k = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.sin(np.pi * np.asarray(x)),
+            support=[(0.6, 1.0)],
+        )
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=[k],
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: np.sin(np.pi * np.asarray(x)),
+                     support=[(0.0, 0.4)])
+        result = G(f)
+        assert result[0] == 0.0, f"Disjoint result must be exactly 0; got {result[0]}"
+        s = G.stats
+        assert s["disjoint_skips"] == 1
+        assert s["batched_fixed_grid_kernels"] == 0
+
+    def test_support_only_result_matches_analytic(
+        self, lebesgue_space, unit_domain
+    ):
+        """Support-only workload gives correct analytic result without full-domain eval."""
+        k = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=[(0.3, 0.7)],
+        )
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=[k],
+            integration_config=IntegrationConfig(method="simpson", n_points=2000),
+        )
+        f = Function(lebesgue_space, evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+                     support=[(0.0, 1.0)])
+        result = G(f)
+        # ∫_{0.3}^{0.7} 1 dx = 0.4
+        assert_allclose(result[0], 0.4, rtol=1e-4)
+        assert G._shared_mesh is None, "Shared mesh must not be built for support-only"
+
+    # ------------------------------------------------------------------
+    # 5. Support-only: f never evaluated on full-domain mesh
+    # ------------------------------------------------------------------
+
+    def test_support_only_f_not_evaluated_on_full_mesh(
+        self, lebesgue_space, unit_domain
+    ):
+        """Support-only workload: f's callable is only invoked with x values inside
+        the kernel's support range — never called on the full-domain mesh [0, 1].
+
+        With the lazy fix, ``_get_or_build_mesh()`` is never called, so ``f``
+        cannot be evaluated on the full-domain linspace.  The restricted mesh
+        for a support of [(0.2, 0.8)] only contains values in [0.2, 0.8].
+        """
+        support = [(0.2, 0.8)]
+        k = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=support,
+        )
+        D = EuclideanSpace(1)
+        G = SOLAOperator(
+            lebesgue_space, D, kernels=[k],
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+
+        call_xs: list = []
+
+        def f_callable(x):
+            x_arr = np.asarray(x).ravel()
+            call_xs.extend(x_arr.tolist())
+            return np.ones_like(x) if isinstance(x, np.ndarray) else 1.0
+
+        f = Function(lebesgue_space, evaluate_callable=f_callable,
+                     support=[(0.0, 1.0)])
+        _ = G(f)
+
+        # f must have been called at least once (on the restricted mesh).
+        assert len(call_xs) >= 1, "f_callable was never invoked"
+        # Every x value passed to f must lie within the kernel support [0.2, 0.8].
+        # A regression (eager full-domain eval) would include 0.0 and 1.0.
+        assert all(0.2 <= x <= 0.8 for x in call_xs), (
+            f"f was evaluated outside kernel support [0.2, 0.8]: "
+            f"min={min(call_xs):.6f}, max={max(call_xs):.6f}"
+        )
+

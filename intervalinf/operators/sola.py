@@ -164,16 +164,19 @@ class SOLAOperator(LinearOperator):
             Kernels skipped because their support is disjoint from *f*'s
             support (result is exactly 0 without evaluating the integrand).
         compact_support_fallbacks : int
-            Kernels that fell back to per-kernel ``domain.integrate`` inside
-            ``_apply_kernels_fixed_grid`` due to overlapping compact-support
-            metadata.  These were *not* handled by the batched matrix path.
+            Kernels handled by the support-restricted grouped batched path in
+            ``_apply_kernels_fixed_grid`` (per-kernel count: N kernels sharing
+            a support group contribute N to this counter).  These kernels are
+            *not* handled by the full-domain batched matrix path and are *not*
+            stored in the kernel eval cache.
         batched_fixed_grid_kernels : int
-            Kernels that went through the fast batched fixed-grid path.
+            Kernels that went through the fast full-domain batched fixed-grid
+            path.
         forward_time_total_s : float
             Cumulative wall time (seconds) of all forward-map calls.
         compact_support_fallback_time_total_s : float
-            Cumulative wall time (seconds) spent in per-kernel fallback
-            integrations within the fixed-grid path.
+            Cumulative wall time (seconds) spent in support-restricted (grouped
+            batched) integrations within the fixed-grid path.
         """
         return dict(self._stats)
 
@@ -374,16 +377,41 @@ class SOLAOperator(LinearOperator):
         if not support:
             return np.empty(0)
 
-        n_sub = len(support)
-        lengths = [float(b) - float(a) for a, b in support]
-        total_length = sum(lengths)
+        alloc = SOLAOperator._compute_subinterval_alloc(support, n_points)
+        parts = [
+            np.linspace(float(support[i][0]), float(support[i][1]), alloc[i])
+            for i in range(len(support))
+        ]
+        return np.concatenate(parts)
 
+    @staticmethod
+    def _compute_subinterval_alloc(support_list: list, n_points: int) -> list:
+        """Compute per-subinterval point allocations for a quadrature mesh.
+
+        Shared logic used by both :meth:`_build_support_mesh` and the grouped
+        support-restricted integration loop in
+        :meth:`_apply_kernels_fixed_grid`.  Consolidating here prevents the
+        two callers from drifting apart.
+
+        Parameters
+        ----------
+        support_list : list of (float, float)
+            Subinterval pairs ``(a_i, b_i)``.
+        n_points : int
+            Desired total number of quadrature points.
+
+        Returns
+        -------
+        list of int
+            Per-subinterval point counts.  Each entry is ``>= 3``.
+        """
+        n_sub = len(support_list)
+        lengths = [float(b) - float(a) for a, b in support_list]
+        total_length = sum(lengths)
         effective_total = max(n_points, 3 * n_sub)
         raw = [effective_total * (L / total_length) for L in lengths]
         alloc = [max(3, int(math.floor(r))) for r in raw]
-        allocated = sum(alloc)
-
-        remainder = effective_total - allocated
+        remainder = effective_total - sum(alloc)
         if remainder > 0:
             fracs = sorted(
                 [(raw[i] - math.floor(raw[i]), i) for i in range(n_sub)],
@@ -395,12 +423,7 @@ class SOLAOperator(LinearOperator):
                 alloc[fracs[idx % n_sub][1]] += 1
                 remainder -= 1
                 idx += 1
-
-        parts = [
-            np.linspace(float(support[i][0]), float(support[i][1]), alloc[i])
-            for i in range(n_sub)
-        ]
-        return np.concatenate(parts)
+        return alloc
 
     def _apply_kernels_fixed_grid(self, func: 'Function') -> np.ndarray:
         """
@@ -418,13 +441,26 @@ class SOLAOperator(LinearOperator):
           reused on all subsequent calls via :meth:`_get_or_build_mesh`.  The
           mesh depends only on immutable construction parameters so no
           invalidation is needed.
+        * **Lazy full-domain evaluation**: the shared mesh and ``f``-on-mesh
+          evaluation are deferred until *after* the kernel-classification pass.
+          They are constructed only if at least one full-domain kernel is
+          present.  Disjoint-only and support-only workloads skip the full-
+          domain mesh entirely, paying zero unnecessary evaluation cost.
         * **Kernel mesh evaluation cache**: when ``cache_kernels=True``, the
           per-kernel mesh evaluations ``k_i(xs)`` are stored in
           ``_kernel_eval_cache`` after the first forward call and reused on
-          all subsequent calls, eliminating repeated kernel evaluations in
-          iterative workloads. Only full-domain (non-compact-support) kernels
-          are cached here; support-restricted kernels still fall back per
-          kernel to the Phase 3 generic path.
+          all subsequent calls.  Only full-domain (non-compact-support) kernels
+          are cached here; support-restricted kernels are handled by the
+          grouped support-restricted path and are never stored in this cache.
+        * **Grouped support-restricted integration**: compact-support kernels
+          (those with non-None, non-empty intersected support) are now grouped
+          by their exact ``intersected_support`` key.  All kernels in the same
+          group share per-subinterval meshes computed via
+          :meth:`_compute_subinterval_alloc`, and their product-with-f
+          integrals are computed in a single batched numpy/scipy pass per
+          subinterval.  For multi-interval supports, partial batch integrals
+          are summed over each subinterval (ensuring correctness for
+          non-contiguous support regions).
 
         Dispatch conditions
         -------------------
@@ -443,9 +479,9 @@ class SOLAOperator(LinearOperator):
         -------------------
         Kernels whose support is disjoint from *func*'s support are skipped
         exactly as in the generic path (result is 0 without evaluating the
-        integrand). For non-disjoint compact-support configurations, this
-        method falls back to the generic Phase 3 path for that kernel so the
-        quadrature mesh is still built on the narrowed support intersection.
+        integrand).  For non-disjoint compact-support configurations, kernels
+        are grouped by exact ``intersected_support`` key and processed batch-
+        wise on a restricted mesh built from that support.
 
         Parameters
         ----------
@@ -463,24 +499,22 @@ class SOLAOperator(LinearOperator):
             # pragma: no cover - scipy < 1.11 fallback
             from scipy.integrate import trapz as _trapz  # type: ignore
 
-        domain = self._domain.function_domain
         method = self.integration.method
         n_points = max(3, self.integration.n_points)
 
-        # ── Phase 5: reuse shared mesh ────────────────────────────────────
-        xs = self._get_or_build_mesh()
-
-        # ── Evaluate f once on the shared mesh ───────────────────────────
-        f_vals = self._eval_on_mesh(func, xs)
-
-        # ── Evaluate all kernels on the shared mesh ───────────────────────
-        # Pre-build a (N_d, n_points) kernel matrix; kernels with disjoint
-        # support vs func are left as zeros and flagged in disjoint_mask.
         results = [0.0] * self.N_d
-        batched_indices = []
-        batched_rows = []
         disjoint_mask = np.zeros(self.N_d, dtype=bool)
 
+        # Maps tuple(tuple(interval)) → list of (kernel_index, kernel).
+        # Compact-support kernels sharing the same intersected support are
+        # grouped here and processed in a single batched pass below.
+        support_groups: dict = {}
+
+        # Full-domain kernels accumulated during classification; xs and f_vals
+        # are constructed only if this list is non-empty (see below).
+        full_domain_kernels: list = []
+
+        # ── Classification pass (no mesh construction yet) ─────────────────
         for i in range(self.N_d):
             kernel = self.get_kernel(i)
             intersected_support = Function._intersect_supports(
@@ -492,58 +526,77 @@ class SOLAOperator(LinearOperator):
                 self._stats["disjoint_skips"] += 1
                 continue
 
-            # Preserve Phase 3 support-aware quadrature semantics whenever a
-            # genuine compact-support restriction is available.  These kernels
-            # are NOT stored in the kernel eval cache because the correct
-            # integration range depends on func.support which varies per call.
             if intersected_support is not None:
-                def product_callable(x, _f=func, _k=kernel):
-                    return _f.evaluate(
-                        x,
-                        check_domain=False,
-                    ) * _k.evaluate(
-                        x,
-                        check_domain=False,
-                    )
-
-                _t_fb = time.perf_counter()
-                results[i] = domain.integrate(
-                    product_callable,
-                    method=method,
-                    support=intersected_support,
-                    n_points=n_points,
-                )
-                self._stats["compact_support_fallback_time_total_s"] += (
-                    time.perf_counter() - _t_fb
-                )
-                self._stats["compact_support_fallbacks"] += 1
+                # Group by exact support key (no floating-point canonicalization
+                # beyond what _intersect_supports already produces).
+                key = tuple(tuple(iv) for iv in intersected_support)
+                if key not in support_groups:
+                    support_groups[key] = []
+                support_groups[key].append((i, kernel))
                 continue
 
-            # Full-domain kernel: check kernel eval cache before evaluating.
-            # Phase 5: when cache_kernels=True, k_i(xs) is stored after the
-            # first evaluation and reused on all subsequent forward calls.
-            if self._kernel_eval_cache is not None and i in self._kernel_eval_cache:
-                k_vals = self._kernel_eval_cache[i]
-            else:
-                k_vals = self._eval_on_mesh(kernel, xs)
-                if self._kernel_eval_cache is not None:
-                    self._kernel_eval_cache[i] = k_vals
+            full_domain_kernels.append((i, kernel))
 
-            batched_indices.append(i)
-            batched_rows.append(k_vals)
-
-        if batched_rows:
+        # ── Full-domain batched integration ───────────────────────────────
+        # Build the shared mesh and evaluate f on it only when there are
+        # full-domain kernels to process.  Disjoint-only and support-only
+        # workloads skip this block entirely, avoiding unnecessary full-domain
+        # function evaluation.
+        self._stats["batched_fixed_grid_kernels"] += len(full_domain_kernels)
+        if full_domain_kernels:
+            xs = self._get_or_build_mesh()
+            f_vals = self._eval_on_mesh(func, xs)
+            batched_indices = []
+            batched_rows = []
+            for i, kernel in full_domain_kernels:
+                # Phase 5: reuse cached kernel mesh evaluation when available.
+                if self._kernel_eval_cache is not None and i in self._kernel_eval_cache:
+                    k_vals = self._kernel_eval_cache[i]
+                else:
+                    k_vals = self._eval_on_mesh(kernel, xs)
+                    if self._kernel_eval_cache is not None:
+                        self._kernel_eval_cache[i] = k_vals
+                batched_indices.append(i)
+                batched_rows.append(k_vals)
             K_matrix = np.stack(batched_rows, axis=0)
             P_matrix = f_vals[np.newaxis, :] * K_matrix
             if method == "simpson":
                 batched_data = np.asarray(_simpson(P_matrix, x=xs, axis=1))
             else:  # 'trapz'
                 batched_data = np.asarray(_trapz(P_matrix, x=xs, axis=1))
-
             for index, value in zip(batched_indices, batched_data):
                 results[index] = value
 
-        self._stats["batched_fixed_grid_kernels"] += len(batched_indices)
+        # ── Grouped support-restricted batched integration ────────────────
+        # For each unique intersected-support key, build a restricted mesh
+        # once for the group, evaluate f and all kernels on it, and integrate
+        # all products in a single batched pass.  Multi-interval supports are
+        # handled by computing per-subinterval partial batch integrals and
+        # summing (the concatenated mesh from _build_support_mesh cannot be
+        # used directly with a single simpson/trapz call for non-contiguous
+        # intervals because the gap between intervals would be integrated over).
+        for support_key, group in support_groups.items():
+            support_list = [list(iv) for iv in support_key]
+            alloc = self._compute_subinterval_alloc(support_list, n_points)
+            group_totals = None
+            t_fb = time.perf_counter()
+            for n_i, (ai, bi) in zip(alloc, support_list):
+                xs_i = np.linspace(float(ai), float(bi), n_i)
+                f_vals_i = self._eval_on_mesh(func, xs_i)
+                k_rows_i = [self._eval_on_mesh(k, xs_i) for _, k in group]
+                K_i = np.stack(k_rows_i, axis=0)  # (len(group), len(xs_i))
+                P_i = f_vals_i[np.newaxis, :] * K_i
+                if method == "simpson":
+                    part_i = np.asarray(_simpson(P_i, x=xs_i, axis=1))
+                else:  # 'trapz'
+                    part_i = np.asarray(_trapz(P_i, x=xs_i, axis=1))
+                group_totals = part_i if group_totals is None else group_totals + part_i
+            self._stats["compact_support_fallback_time_total_s"] += (
+                time.perf_counter() - t_fb
+            )
+            for (orig_idx, _kernel), val in zip(group, group_totals):
+                results[orig_idx] = val
+            self._stats["compact_support_fallbacks"] += len(group)
 
         data = np.asarray(results)
         # Force disjoint-support entries to exactly 0 (no numerical noise).

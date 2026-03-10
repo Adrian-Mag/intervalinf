@@ -562,9 +562,9 @@ All spectral operators share the pattern: project $f$ onto eigenfunctions $\{\ph
 | `reset_stats()` | Zeros all `_stats` counters. Call before a timed section to get per-experiment numbers. |
 | `for_direct_sum(domain, codomain, kernels, ...)` | **Static.** Creates a `RowLinearOperator` with one `SOLAOperator` per subspace; kernels restricted via `provider.restrict(subspace)` or `Function.restrict(subspace)` |
 | `_eval_on_mesh(func, xs)` | **Static.** Evaluates a `Function` on a numpy mesh array with vectorisation fallback for non-vectorised callables; preserves complex dtype |
-| `_build_support_mesh(support, n_points)` | **Static. Phase 4.** Builds a concatenated quadrature mesh over a list of support subintervals, reproducing the proportional-allocation + remainder-distribution logic of `IntervalDomain.integrate`. Returns an empty array for empty support; otherwise concatenates `np.linspace(a_i, b_i, alloc_i)` per subinterval (shared boundary endpoints **not** deduplicated). Prepared for future batched support-restricted kernel integration (Phase 6). |
+| `_build_support_mesh(support, n_points)` | **Static. Phase 4.** Builds a concatenated quadrature mesh over a list of support subintervals, reproducing the proportional-allocation + remainder-distribution logic of `IntervalDomain.integrate`. Returns an empty array for empty support; otherwise concatenates `np.linspace(a_i, b_i, alloc_i)` per subinterval (shared boundary endpoints **not** deduplicated). Used by the Phase 5 grouped support-restricted batched integration path. |
 | `_apply_kernels(func)` | Dispatch method: routes to `_apply_kernels_fixed_grid` for fixed-grid methods, `_apply_kernels_generic` for adaptive |
-| `_apply_kernels_fixed_grid(func)` | Phase 4 batched path — builds mesh once, evaluates f once, batches full-domain kernels, and falls back per kernel when support restriction must be preserved |
+| `_apply_kernels_fixed_grid(func)` | Phase 5 forward path — reuses shared mesh, evaluates f once, batches full-domain kernels, and groups compact-support kernels by their exact intersected-support key for batched integration on restricted meshes per subinterval |
 | `_apply_kernels_generic(func)` | Original per-kernel loop — calls `domain.integrate()` individually for each kernel; used for adaptive methods |
 
 **Phase 2 instrumentation counters (2026-03-10):**
@@ -574,11 +574,11 @@ All counters **accumulate** across calls; use `reset_stats()` before a timed sec
 | Counter key | Type | Incremented by |
 |---|---|---|
 | `forward_calls` | `int` | +1 for every `G(f)` call (fixed-grid **and** adaptive) |
-| `batched_fixed_grid_kernels` | `int` | +N per call for kernels handled by the batched matrix path (no compact-support restriction) |
-| `compact_support_fallbacks` | `int` | +1 per kernel that fell back to `domain.integrate` in `_apply_kernels_fixed_grid` due to overlapping compact support |
+| `batched_fixed_grid_kernels` | `int` | +N per call for kernels handled by the full-domain batched matrix path (no compact-support restriction) |
+| `compact_support_fallbacks` | `int` | +1 per kernel handled by the support-restricted grouped batched path in `_apply_kernels_fixed_grid` (per-kernel count: N kernels in the same support group contribute N to this counter) |
 | `disjoint_skips` | `int` | +1 per kernel whose support was disjoint from the input function's support (both fixed-grid **and** adaptive paths) |
 | `forward_time_total_s` | `float` | cumulative wall time of all `G(f)` calls |
-| `compact_support_fallback_time_total_s` | `float` | cumulative wall time of per-kernel fallback integrations inside the fixed-grid path |
+| `compact_support_fallback_time_total_s` | `float` | cumulative wall time of support-restricted grouped batched integrations inside the fixed-grid path |
 
 Example usage:
 ```python
@@ -595,14 +595,25 @@ print(s["compact_support_fallbacks"], "fallbacks in", s["forward_calls"], "calls
 - `_apply_kernels` and `compute_gram_matrix` now propagate compact-support metadata: when both the input function and the kernel carry compact-support information, the integration range is narrowed to the support intersection.  Disjoint supports return 0 without evaluating the integrand.
 - Reconstructed adjoint functions still loop over kernels on each evaluation (Phase 5/6 scope).
 
-**Phase 5 changes (2026-03-08):** Kernel-eval caching for repeated workloads.
+**Phase 5 changes (2026-03-08 + 2026-03-10):** Kernel-eval caching and grouped support-restricted batching.
+
+*Phase 5a — shared mesh reuse and kernel-eval cache:*
 - **`_shared_mesh: Optional[np.ndarray]`** — lazy-built on first `_apply_kernels_fixed_grid` call via `np.linspace(a, b, n_points)`. Never cleared; depends only on immutable constructor parameters (domain bounds + n_points).
-- **`_kernel_eval_cache: Optional[dict]`** — `None` when `cache_kernels=False`; otherwise a dict mapping kernel index → `ndarray` of shape `(n_points,)` (kernel values on the shared mesh). Populated **only** on the batched path. Cleared by `clear_cache()` and `clear_mesh_cache()`; `_shared_mesh` is never cleared.
+- **`_kernel_eval_cache: Optional[dict]`** — `None` when `cache_kernels=False`; otherwise a dict mapping kernel index → `ndarray` of shape `(n_points,)` (kernel values on the shared mesh). Populated **only** for full-domain (non-compact-support) kernels. Cleared by `clear_cache()` and `clear_mesh_cache()`; `_shared_mesh` is never cleared.
 - **`_get_or_build_mesh()`** — private helper; builds and stores `_shared_mesh` on first call, returns it on subsequent calls.
 - **Batched-path loop** now checks eval cache before calling `_eval_on_mesh(kernel, xs)`; stores result if not present.
-- **Cache semantics:** A kernel is cached iff it goes through the batched path. A kernel goes through the generic fallback (NOT cached) only when `_intersect_supports(func.support, kernel.support)` returns a non-`None`, non-empty list (i.e. BOTH function and kernel have compact-support metadata that overlaps). Disjoint supports → kernel skipped entirely (also not cached).
+- **Cache semantics:** A kernel is cached iff it goes through the full-domain batched path. Compact-support kernels (grouped path) and disjoint-support kernels are never cached.
 - **Memory:** each entry ≈ 8 KB at n_points=1000; N_d entries ≈ N_d × 8 KB (e.g. 200 × 8 KB = 1.6 MB).
 - **Measured speedup** for repeated workloads (N_REPS=50 distinct input functions, n_points=1000): about 1.6x–3.6x across N_d 5–200 on the current benchmark.
+
+*Phase 5b — grouped support-restricted batched integration (2026-03-10):*
+- **Replaces per-kernel `domain.integrate` fallback** for compact-support kernels with a grouped batched numpy/scipy pass.
+- **Grouping logic:** during the classification loop, kernels with a non-None, non-empty `intersected_support` are inserted into a `support_groups` dict keyed by `tuple(tuple(iv) for iv in intersected_support)`. Only exact tuple equality is used — no floating-point canonicalization.
+- **Per-group integration:** for each unique support key, the proportional allocation sizes are computed via `_compute_subinterval_alloc(...)`, then for each subinterval `(a_i, b_i)` with allocation `n_i` a per-subinterval `np.linspace(a_i, b_i, n_i)` mesh is built, `f` and all kernels in the group are evaluated on it, the batched product matrix is integrated with `_simpson`/`_trapz`, and partial results are accumulated. Summing over subintervals gives the complete integral for non-contiguous multi-interval supports.
+- **Single-subinterval groups (common case):** exactly one `_build_support_mesh` call per group, one batched integration pass. N kernels sharing the same single-interval support → 1 mesh build instead of N.
+- **Multi-interval supports:** `_build_support_mesh` is called once per subinterval within the group. Correctness is guaranteed because each subinterval is integrated separately (avoiding the gap-integration error that would result from applying `_simpson` directly to the concatenated non-contiguous mesh).
+- **Stats:** `compact_support_fallbacks` still counts per-kernel (N kernels in a group → N increments), preserving backward compatibility. `compact_support_fallback_time_total_s` now accumulates the per-group timing (from mesh build through integration) rather than per-kernel timing.
+- **Complex dtype:** complex kernel/function values are preserved through the batched product and integration, matching the behaviour of the full-domain batched path.
 
 **Phase 4 changes (2026-03-08):**
 - `_apply_kernels` now dispatches based on `self.integration.is_fixed_grid`:
@@ -613,7 +624,7 @@ print(s["compact_support_fallbacks"], "fallbacks in", s["forward_calls"], "calls
     - Product matrix integrated in a single `scipy.integrate.simpson` or `trapezoid` call.
     - Non-vectorised callables handled via `_eval_on_mesh` fallback (per-point loop).
     - Disjoint-support kernels still skipped without evaluation.
-    - Support-restricted kernels fall back per kernel to the Phase 3 generic path so narrowed-support quadrature resolution is preserved.
+    - Support-restricted kernels are grouped by their exact intersected-support key; each group is integrated in a single batched pass on a restricted mesh (Phase 5b grouped batching).
     - Complex-valued fixed-grid evaluations are preserved end to end; no silent real downcast in the batched or support-restricted fixed-grid paths.
   - **Adaptive methods** (`'adaptive'`, `'quad'`): unchanged generic per-kernel loop via `_apply_kernels_generic`.
 - Static helper `_eval_on_mesh(func, xs)` added: tries vectorised `Function.evaluate(xs)` first; on shape mismatch or exception, falls back to per-point evaluation while preserving scalar dtype.
