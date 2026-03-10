@@ -1014,6 +1014,10 @@ These scripts are NOT part of the test suite; they measure runtime performance a
 | `rough_work/benchmark_phase6_comparison.py` | **Phase 6 end-to-end comparison benchmark.** Three-way comparison: `_apply_kernels_generic` (Phase 2 baseline path), Phase 4 batched fast path, and Phase 5 warm-cached path. Also validates adjoint consistency and accuracy vs adaptive-quad reference. Writes `benchmark_phase6_results.csv`. Usage: `conda run -n inferences3 python intervalinf/rough_work/benchmark_phase6_comparison.py` |
 | `rough_work/benchmark_dli_instrumentation.py` | **Phase 1 instrumentation harness.** Exercises `DualMasterCostFunction` and `ProximalBundleMethod` instrumentation stats (`DualMasterStats`, `ProximalBundleStats`) on small 1D problems with `NormalModesProvider`. Validates that call counts, timers, and `BundleResult.num_iterations` are internally consistent. Usage: `conda run -n inferences3 python intervalinf/rough_work/benchmark_dli_instrumentation.py` |
 
+### DLI Performance Analysis Report
+
+`docs/agent-docs/references/dli-performance-analysis-and-speedup-targets.md` — Phase 4 deliverable. Ranked optimization opportunities derived from Phase 1–3 benchmark evidence. Key findings: oracle dominates at ~95% of total solve time; within oracle, `support_value_model` is ~46% and `support_point_model` is ~31% (both model-prior operations on Lebesgue space); data-side operations are negligible (<0.1%). Top target: eliminate duplicated support evaluations (T1-A, est. 30–44% total speedup). See the report for full tier ranking (T1-A/B, T2-A/B/C, T3-A/B).
+
 ---
 
 ## Demo Notebooks (`demos/convex_analysis/`)
