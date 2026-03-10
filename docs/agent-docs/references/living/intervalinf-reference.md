@@ -16,6 +16,8 @@ The `intervalinf/demos/convex_analysis/` directory contains notebook-scale demon
 
 - `bg_dli_1d_sweep.py` (`intervalinf/rough_work/`): Standalone comparison script. Sweeps BG vs DLI admissible interval widths across `N_d ∈ {5, 10, 20, 40}`, 3 forward-operator seeds, and 3 data seeds (36 cases total). Generates CSV outputs (`bg_dli_1d_sweep_results/`) and PNG/PDF plots (`bg_dli_1d_sweep_figures/`). Run with: `conda run -n inferences3 python intervalinf/rough_work/bg_dli_1d_sweep.py`
 
+- `benchmark_phase2_compact_support.py` (`intervalinf/rough_work/`): Phase 2 benchmark harness. Measures the timing penalty of losing the batched fixed-grid cache path when overlapping compact-support metadata forces per-kernel fallback integration. Covers four scenarios (`full_domain`, `disjoint_support`, `overlapping_fallback`, `mixed_paths`), sweeps `N_d ∈ {5, 10, 20, 40}` and `n_points ∈ {500, 1000, 2000}`, validates accuracy against adaptive references, and enforces built-in counterassertions per scenario. Emits a CSV artifact `benchmark_phase2_compact_support_results.csv`. Run with: `conda run -n inferences3 python intervalinf/rough_work/benchmark_phase2_compact_support.py`
+
 ---
 
 ## Package Metadata
@@ -37,7 +39,7 @@ pip install "intervalinf[all]"    # includes dev, docs, plotting
 pip install -e ".[dev]"           # editable development install
 ```
 
-**Last Updated:** 2026-03-09
+**Last Updated:** 2026-03-10
 
 ---
 
@@ -547,11 +549,35 @@ All spectral operators share the pattern: project $f$ onto eigenfunctions $\{\ph
 | `clear_cache()` | Clears `_kernels_cache` AND `_kernel_eval_cache`; `_shared_mesh` is preserved |
 | `clear_mesh_cache()` | Clears only `_kernel_eval_cache`; `_shared_mesh` is preserved (no-op if `cache_kernels=False`) |
 | `get_cache_info()` | Returns dict with `caching_enabled`, `shared_mesh_built`; when enabled also `cached_functions`, `total_functions`, `cache_coverage`, `kernel_eval_cache_entries` |
+| `stats` | **Phase 2 instrumentation.** Property returning a shallow-copy `dict` with performance counters accumulated since construction or last `reset_stats()`. Keys: `forward_calls`, `disjoint_skips`, `compact_support_fallbacks`, `batched_fixed_grid_kernels`, `forward_time_total_s`, `compact_support_fallback_time_total_s`. See table below. |
+| `reset_stats()` | Zeros all `_stats` counters. Call before a timed section to get per-experiment numbers. |
 | `for_direct_sum(domain, codomain, kernels, ...)` | **Static.** Creates a `RowLinearOperator` with one `SOLAOperator` per subspace; kernels restricted via `provider.restrict(subspace)` or `Function.restrict(subspace)` |
 | `_eval_on_mesh(func, xs)` | **Static.** Evaluates a `Function` on a numpy mesh array with vectorisation fallback for non-vectorised callables; preserves complex dtype |
 | `_apply_kernels(func)` | Dispatch method: routes to `_apply_kernels_fixed_grid` for fixed-grid methods, `_apply_kernels_generic` for adaptive |
 | `_apply_kernels_fixed_grid(func)` | Phase 4 batched path — builds mesh once, evaluates f once, batches full-domain kernels, and falls back per kernel when support restriction must be preserved |
 | `_apply_kernels_generic(func)` | Original per-kernel loop — calls `domain.integrate()` individually for each kernel; used for adaptive methods |
+
+**Phase 2 instrumentation counters (2026-03-10):**
+
+All counters **accumulate** across calls; use `reset_stats()` before a timed section.
+
+| Counter key | Type | Incremented by |
+|---|---|---|
+| `forward_calls` | `int` | +1 for every `G(f)` call (fixed-grid **and** adaptive) |
+| `batched_fixed_grid_kernels` | `int` | +N per call for kernels handled by the batched matrix path (no compact-support restriction) |
+| `compact_support_fallbacks` | `int` | +1 per kernel that fell back to `domain.integrate` in `_apply_kernels_fixed_grid` due to overlapping compact support |
+| `disjoint_skips` | `int` | +1 per kernel whose support was disjoint from the input function's support (both fixed-grid **and** adaptive paths) |
+| `forward_time_total_s` | `float` | cumulative wall time of all `G(f)` calls |
+| `compact_support_fallback_time_total_s` | `float` | cumulative wall time of per-kernel fallback integrations inside the fixed-grid path |
+
+Example usage:
+```python
+G.reset_stats()
+for f_i in training_set:
+    G(f_i)
+s = G.stats
+print(s["compact_support_fallbacks"], "fallbacks in", s["forward_calls"], "calls")
+```
 
 **Phase 3 changes (2026-03-08):**
 - `IntegrationConfig(method='quad')` now works correctly — `'quad'` routes to `scipy.integrate.quad` via the `'adaptive'` alias in `IntervalDomain.integrate`.

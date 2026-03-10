@@ -5,6 +5,7 @@ integrates input functions against a set of kernel functions,
 producing a vector of data values.
 """
 
+import time
 from typing import Union, Optional, List, Callable, TYPE_CHECKING
 
 import numpy as np
@@ -126,6 +127,17 @@ class SOLAOperator(LinearOperator):
             {} if cache_kernels else None
         )
 
+        # Phase 2 instrumentation — lightweight passive counters.
+        # All counters are ints/floats; collection overhead is negligible.
+        self._stats: dict = {
+            "forward_calls": 0,
+            "disjoint_skips": 0,
+            "compact_support_fallbacks": 0,
+            "batched_fixed_grid_kernels": 0,
+            "forward_time_total_s": 0.0,
+            "compact_support_fallback_time_total_s": 0.0,
+        }
+
         self._initialize_kernels(kernels)
 
         super().__init__(
@@ -138,6 +150,36 @@ class SOLAOperator(LinearOperator):
     def _mapping(self, f: 'Function') -> np.ndarray:
         """Apply kernel functions to input function via integration."""
         return self._apply_kernels(f)
+
+    @property
+    def stats(self) -> dict:
+        """Return a copy of the current instrumentation counters.
+
+        Keys
+        ----
+        forward_calls : int
+            Total number of times the forward map has been applied.
+        disjoint_skips : int
+            Kernels skipped because their support is disjoint from *f*'s
+            support (result is exactly 0 without evaluating the integrand).
+        compact_support_fallbacks : int
+            Kernels that fell back to per-kernel ``domain.integrate`` inside
+            ``_apply_kernels_fixed_grid`` due to overlapping compact-support
+            metadata.  These were *not* handled by the batched matrix path.
+        batched_fixed_grid_kernels : int
+            Kernels that went through the fast batched fixed-grid path.
+        forward_time_total_s : float
+            Cumulative wall time (seconds) of all forward-map calls.
+        compact_support_fallback_time_total_s : float
+            Cumulative wall time (seconds) spent in per-kernel fallback
+            integrations within the fixed-grid path.
+        """
+        return dict(self._stats)
+
+    def reset_stats(self) -> None:
+        """Reset all instrumentation counters to zero."""
+        for key in self._stats:
+            self._stats[key] = 0 if isinstance(self._stats[key], int) else 0.0
 
     def _dual_mapping(self, yp: 'LinearForm') -> 'LinearFormKernel':
         """Reconstruct function from data using kernel functions."""
@@ -235,9 +277,14 @@ class SOLAOperator(LinearOperator):
         numpy.ndarray
             Vector of data in $\\mathbb{R}^{N_d}$.
         """
+        self._stats["forward_calls"] += 1
+        _t0 = time.perf_counter()
         if self.integration.is_fixed_grid:
-            return self._apply_kernels_fixed_grid(func)
-        return self._apply_kernels_generic(func)
+            result = self._apply_kernels_fixed_grid(func)
+        else:
+            result = self._apply_kernels_generic(func)
+        self._stats["forward_time_total_s"] += time.perf_counter() - _t0
+        return result
 
     @staticmethod
     def _eval_on_mesh(func: 'Function', xs: np.ndarray) -> np.ndarray:
@@ -375,6 +422,7 @@ class SOLAOperator(LinearOperator):
             if intersected_support == []:
                 # Supports are disjoint → product is identically zero.
                 disjoint_mask[i] = True
+                self._stats["disjoint_skips"] += 1
                 continue
 
             # Preserve Phase 3 support-aware quadrature semantics whenever a
@@ -391,12 +439,17 @@ class SOLAOperator(LinearOperator):
                         check_domain=False,
                     )
 
+                _t_fb = time.perf_counter()
                 results[i] = domain.integrate(
                     product_callable,
                     method=method,
                     support=intersected_support,
                     n_points=n_points,
                 )
+                self._stats["compact_support_fallback_time_total_s"] += (
+                    time.perf_counter() - _t_fb
+                )
+                self._stats["compact_support_fallbacks"] += 1
                 continue
 
             # Full-domain kernel: check kernel eval cache before evaluating.
@@ -422,6 +475,8 @@ class SOLAOperator(LinearOperator):
 
             for index, value in zip(batched_indices, batched_data):
                 results[index] = value
+
+        self._stats["batched_fixed_grid_kernels"] += len(batched_indices)
 
         data = np.asarray(results)
         # Force disjoint-support entries to exactly 0 (no numerical noise).
@@ -471,6 +526,7 @@ class SOLAOperator(LinearOperator):
             # Empty intersection → product is identically zero; no need to
             # evaluate the integrand at all.
             if intersected_support == []:
+                self._stats["disjoint_skips"] += 1
                 continue  # data[i] already 0.0
 
             def product_callable(x, _f=func, _k=kernel):

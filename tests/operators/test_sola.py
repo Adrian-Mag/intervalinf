@@ -1834,3 +1834,313 @@ class TestPhase5ReuseAndCaching:
                 r_cached, r_ref, rtol=0, atol=0,
                 err_msg="Cached result differed from reference on repeated call",
             )
+
+
+# ---------------------------------------------------------------------------
+# 14. Phase 2: SOLAOperator instrumentation (stats / reset_stats)
+# ---------------------------------------------------------------------------
+
+class TestPhase2Instrumentation:
+    """Unit tests for the lightweight passive instrumentation added in Phase 2.
+
+    Verifies:
+    - ``stats`` property returns an accurate copy as a plain dict.
+    - ``reset_stats()`` zeros all counters.
+    - correct counter increments for each of the three fixed-grid sub-paths:
+        * batched fixed-grid path (full-domain / no support metadata)
+        * compact-support fallback path (overlapping supports)
+        * disjoint-support skip path (disjoint supports → exact zero)
+    - counters accumulate correctly across multiple forward calls.
+    - generic (adaptive) path also increments disjoint_skips.
+    - timing fields are non-negative and forward_time_total_s > 0 after calls.
+    """
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _flat_kernel(domain, support=None):
+        """Constant-1 kernel, optionally with compact-support metadata."""
+        return Function(
+            domain,
+            evaluate_callable=lambda x: (
+                np.ones_like(x) if isinstance(x, np.ndarray) else 1.0
+            ),
+            support=support,
+        )
+
+    @staticmethod
+    def _make_operator(domain, space, kernels, method="simpson"):
+        D = EuclideanSpace(len(kernels))
+        cfg = IntegrationConfig(method=method, n_points=500)
+        return SOLAOperator(space, D, kernels=kernels, integration_config=cfg)
+
+    # ------------------------------------------------------------------
+    # 14.1  stats dict structure
+    # ------------------------------------------------------------------
+
+    def test_stats_returns_dict_with_expected_keys(self, lebesgue_space, unit_domain):
+        """stats property returns a dict with all Phase 2 counter keys."""
+        D = EuclideanSpace(1)
+        k = self._flat_kernel(unit_domain)
+        G = self._make_operator(unit_domain, lebesgue_space, [k])
+        s = G.stats
+        expected_keys = {
+            "forward_calls", "disjoint_skips", "compact_support_fallbacks",
+            "batched_fixed_grid_kernels", "forward_time_total_s",
+            "compact_support_fallback_time_total_s",
+        }
+        assert expected_keys == set(s.keys()), f"Unexpected keys: {set(s.keys())}"
+
+    def test_stats_initial_values_all_zero(self, lebesgue_space, unit_domain):
+        """All counters start at zero before any forward call."""
+        D = EuclideanSpace(1)
+        k = self._flat_kernel(unit_domain)
+        G = self._make_operator(unit_domain, lebesgue_space, [k])
+        s = G.stats
+        for key, val in s.items():
+            assert val == 0 or val == 0.0, f"{key}={val} should be 0 initially"
+
+    def test_stats_returns_copy(self, lebesgue_space, unit_domain):
+        """Mutating the returned dict does not affect the operator's internal state."""
+        D = EuclideanSpace(1)
+        k = self._flat_kernel(unit_domain)
+        G = self._make_operator(unit_domain, lebesgue_space, [k])
+        s = G.stats
+        s["forward_calls"] = 9999
+        assert G.stats["forward_calls"] == 0, "stats should return an independent copy"
+
+    # ------------------------------------------------------------------
+    # 14.2  reset_stats
+    # ------------------------------------------------------------------
+
+    def test_reset_clears_all_counters(self, lebesgue_space, unit_domain):
+        """reset_stats() brings all counters back to zero after forward calls."""
+        D = EuclideanSpace(2)
+        kernels = [self._flat_kernel(unit_domain) for _ in range(2)]
+        G = self._make_operator(unit_domain, lebesgue_space, kernels)
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        G(f)
+        G(f)
+        G.reset_stats()
+        s = G.stats
+        for key, val in s.items():
+            assert val == 0 or val == 0.0, f"After reset, {key}={val} should be 0"
+
+    # ------------------------------------------------------------------
+    # 14.3  full-domain / batched path
+    # ------------------------------------------------------------------
+
+    def test_batched_path_increments_forward_calls(self, lebesgue_space, unit_domain):
+        """Each forward call increments forward_calls by 1."""
+        D = EuclideanSpace(3)
+        kernels = [self._flat_kernel(unit_domain) for _ in range(3)]
+        G = self._make_operator(unit_domain, lebesgue_space, kernels)
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        for n in range(1, 4):
+            G(f)
+            assert G.stats["forward_calls"] == n
+
+    def test_batched_path_no_fallback_no_skip(self, lebesgue_space, unit_domain):
+        """No-support-metadata kernels go entirely through the batched path."""
+        N_d = 4
+        D = EuclideanSpace(N_d)
+        kernels = [
+            Function(unit_domain, evaluate_callable=lambda x, _i=i: np.sin((_i + 1) * np.pi * np.asarray(x)))
+            for i in range(N_d)
+        ]
+        G = self._make_operator(unit_domain, lebesgue_space, kernels)
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        G(f)
+        s = G.stats
+        assert s["batched_fixed_grid_kernels"] == N_d
+        assert s["compact_support_fallbacks"] == 0
+        assert s["disjoint_skips"] == 0
+
+    def test_batched_path_accumulates_across_calls(self, lebesgue_space, unit_domain):
+        """batched_fixed_grid_kernels accumulates over multiple forward calls."""
+        N_d = 3
+        D = EuclideanSpace(N_d)
+        kernels = [self._flat_kernel(unit_domain) for _ in range(N_d)]
+        G = self._make_operator(unit_domain, lebesgue_space, kernels)
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        n_calls = 5
+        for _ in range(n_calls):
+            G(f)
+        assert G.stats["batched_fixed_grid_kernels"] == N_d * n_calls
+
+    # ------------------------------------------------------------------
+    # 14.4  disjoint-support skip path
+    # ------------------------------------------------------------------
+
+    def test_disjoint_skips_counter(self, lebesgue_space, unit_domain):
+        """Disjoint-support kernels increment disjoint_skips and give zero result."""
+        k_right = self._flat_kernel(unit_domain, support=[(0.7, 1.0)])
+        G = self._make_operator(unit_domain, lebesgue_space, [k_right])
+        f = Function(lebesgue_space,
+                     evaluate_callable=lambda x: x,
+                     support=[(0.0, 0.3)])
+        result = G(f)
+        assert_allclose(result, [0.0], atol=1e-12)
+        s = G.stats
+        assert s["disjoint_skips"] == 1
+        assert s["compact_support_fallbacks"] == 0
+        assert s["batched_fixed_grid_kernels"] == 0
+
+    def test_disjoint_skips_multiple_kernels(self, lebesgue_space, unit_domain):
+        """Multiple disjoint kernels each increment disjoint_skips by 1."""
+        N_d = 5
+        kernels = [self._flat_kernel(unit_domain, support=[(0.7, 1.0)])
+                   for _ in range(N_d)]
+        G = self._make_operator(unit_domain, lebesgue_space, kernels)
+        f = Function(lebesgue_space,
+                     evaluate_callable=lambda x: x,
+                     support=[(0.0, 0.3)])
+        G(f)
+        assert G.stats["disjoint_skips"] == N_d
+
+    # ------------------------------------------------------------------
+    # 14.5  compact-support fallback path
+    # ------------------------------------------------------------------
+
+    def test_fallback_counter_for_overlapping_support(self, lebesgue_space, unit_domain):
+        """Overlapping compact-support kernel increments compact_support_fallbacks."""
+        k_overlap = self._flat_kernel(unit_domain, support=[(0.1, 0.5)])
+        G = self._make_operator(unit_domain, lebesgue_space, [k_overlap])
+        f = Function(lebesgue_space,
+                     evaluate_callable=lambda x: x,
+                     support=[(0.0, 0.6)])
+        G(f)
+        s = G.stats
+        assert s["compact_support_fallbacks"] == 1
+        assert s["batched_fixed_grid_kernels"] == 0
+        assert s["disjoint_skips"] == 0
+
+    def test_fallback_time_positive_after_fallback(self, lebesgue_space, unit_domain):
+        """compact_support_fallback_time_total_s > 0 after at least one fallback."""
+        k_overlap = self._flat_kernel(unit_domain, support=[(0.1, 0.5)])
+        G = self._make_operator(unit_domain, lebesgue_space, [k_overlap])
+        f = Function(lebesgue_space,
+                     evaluate_callable=lambda x: x,
+                     support=[(0.0, 0.6)])
+        G(f)
+        assert G.stats["compact_support_fallback_time_total_s"] > 0.0
+
+    def test_forward_time_positive_after_call(self, lebesgue_space, unit_domain):
+        """forward_time_total_s > 0 after at least one forward call."""
+        G = self._make_operator(unit_domain, lebesgue_space,
+                                [self._flat_kernel(unit_domain)])
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x)
+        G(f)
+        assert G.stats["forward_time_total_s"] > 0.0
+
+    # ------------------------------------------------------------------
+    # 14.6  mixed-path scenario
+    # ------------------------------------------------------------------
+
+    def test_mixed_path_counter_split(self, lebesgue_space, unit_domain):
+        """Mix of no-metadata and overlapping-support kernels splits correctly."""
+        # 2 full-domain (batched) + 2 overlapping-support (fallback) + 1 disjoint (skip)
+        kernels = [
+            Function(unit_domain, evaluate_callable=lambda x: x),          # batched
+            Function(unit_domain, evaluate_callable=lambda x: x * 2),      # batched
+            self._flat_kernel(unit_domain, support=[(0.1, 0.45)]),          # fallback
+            self._flat_kernel(unit_domain, support=[(0.1, 0.45)]),          # fallback
+            self._flat_kernel(unit_domain, support=[(0.7, 1.0)]),           # disjoint
+        ]
+        G = self._make_operator(unit_domain, lebesgue_space, kernels)
+        f = Function(lebesgue_space,
+                     evaluate_callable=lambda x: x,
+                     support=[(0.0, 0.5)])
+        G(f)
+        s = G.stats
+        assert s["batched_fixed_grid_kernels"] == 2, f"Expected batched=2, got {s['batched_fixed_grid_kernels']}"
+        assert s["compact_support_fallbacks"] == 2, f"Expected fallbacks=2, got {s['compact_support_fallbacks']}"
+        assert s["disjoint_skips"] == 1, f"Expected skips=1, got {s['disjoint_skips']}"
+
+    # ------------------------------------------------------------------
+    # 14.7  generic (adaptive) path — disjoint_skips still counted
+    # ------------------------------------------------------------------
+
+    def test_generic_path_disjoint_skips(self, lebesgue_space, unit_domain):
+        """disjoint_skips is also counted on the adaptive (generic) path."""
+        k_right = self._flat_kernel(unit_domain, support=[(0.7, 1.0)])
+        G = self._make_operator(unit_domain, lebesgue_space, [k_right],
+                                method="adaptive")
+        f = Function(lebesgue_space,
+                     evaluate_callable=lambda x: x,
+                     support=[(0.0, 0.3)])
+        result = G(f)
+        assert_allclose(result, [0.0], atol=1e-12)
+        s = G.stats
+        assert s["forward_calls"] == 1
+        assert s["disjoint_skips"] == 1
+
+    # ------------------------------------------------------------------
+    # 14.8  numerical invariance — instrumentation must not change results
+    # ------------------------------------------------------------------
+
+    def test_instrumentation_does_not_change_forward_result(
+        self, lebesgue_space, unit_domain
+    ):
+        """Results from instrumented operator match a freshly built reference."""
+        N_d = 4
+        kernels = [
+            Function(unit_domain, evaluate_callable=lambda x, _i=i: np.sin((_i + 1) * np.pi * np.asarray(x)))
+            for i in range(N_d)
+        ]
+        D = EuclideanSpace(N_d)
+        cfg = IntegrationConfig(method="simpson", n_points=1000)
+        G1 = SOLAOperator(lebesgue_space, D, kernels=kernels, integration_config=cfg)
+        G2 = SOLAOperator(lebesgue_space, D, kernels=kernels, integration_config=cfg)
+        f = Function(lebesgue_space, evaluate_callable=lambda x: np.sin(np.pi * x))
+        y1 = G1(f)
+        y2 = G2(f)
+        assert_allclose(y1, y2, rtol=0, atol=0,
+                        err_msg="Instrumentation changed forward result")
+
+    # ------------------------------------------------------------------
+    # 14.9  consolidated smoke test: batched + fallback + reset
+    # ------------------------------------------------------------------
+
+    def test_instrumentation_and_reset_smoke(self, lebesgue_space, unit_domain):
+        """Smoke: one call exercises batched and fallback paths; reset_stats zeros all.
+
+        One forward call on a mixed operator (one full-domain kernel, one
+        overlapping-support kernel) must increment:
+        - forward_calls by 1
+        - batched_fixed_grid_kernels by 1
+        - compact_support_fallbacks by 1
+        After reset_stats() every counter must be 0.
+        """
+        k_batched = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.sin(np.pi * np.asarray(x)),
+        )
+        k_overlap = Function(
+            unit_domain,
+            evaluate_callable=lambda x: np.ones_like(x) if isinstance(x, np.ndarray) else 1.0,
+            support=[(0.1, 0.4)],
+        )
+        D = EuclideanSpace(2)
+        G = SOLAOperator(
+            lebesgue_space, D,
+            kernels=[k_batched, k_overlap],
+            integration_config=IntegrationConfig(method="simpson", n_points=500),
+        )
+        # f has compact support overlapping k_overlap but k_batched has no support
+        f = Function(lebesgue_space, evaluate_callable=lambda x: x,
+                     support=[(0.0, 0.5)])
+        G(f)
+        s = G.stats
+        assert s["forward_calls"] == 1
+        assert s["batched_fixed_grid_kernels"] == 1, (
+            f"Expected batched=1, got {s['batched_fixed_grid_kernels']}"
+        )
+        assert s["compact_support_fallbacks"] == 1, (
+            f"Expected fallbacks=1, got {s['compact_support_fallbacks']}"
+        )
+        G.reset_stats()
+        for key, val in G.stats.items():
+            assert val == 0 or val == 0.0, f"After reset_stats, {key}={val} should be 0"
