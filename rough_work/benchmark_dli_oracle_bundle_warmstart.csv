@@ -1,0 +1,2 @@
+N_small,N_large,forward_seed,data_seed,cold_iters,cold_s,cold_converged,cold_gap,cold_support_value,warm_iters,warm_s,warm_converged,warm_gap,warm_support_value,iter_reduction,time_speedup
+5,10,2,42,12,0.3483,True,9.598e-05,1.69660007,11,0.334852,True,8.529e-05,1.69660059,1,1.0402

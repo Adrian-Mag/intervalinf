@@ -186,7 +186,7 @@ def build_full_domain(N_d: int, n_points: int, domain: IntervalDomain, space: Le
 
 def build_disjoint_support(N_d: int, n_points: int, domain: IntervalDomain, space: Lebesgue):
     """Scenario 2: func support and all kernel supports are disjoint.
-    
+
     All N_d kernels should be skipped (disjoint_skips == N_d).
     Result is exactly zero.  Reference is np.zeros(N_d) (no G_ref needed).
     """
@@ -199,7 +199,7 @@ def build_disjoint_support(N_d: int, n_points: int, domain: IntervalDomain, spac
 
 def build_overlapping_fallback(N_d: int, n_points: int, domain: IntervalDomain, space: Lebesgue):
     """Scenario 3: func and all kernels have overlapping compact support.
-    
+
     All N_d kernels fall back to per-kernel domain.integrate inside the
     fixed-grid path (compact_support_fallbacks == N_d).  G_ref uses the SAME
     kernels (with support metadata) and adaptive integration so the reference
@@ -216,7 +216,7 @@ def build_overlapping_fallback(N_d: int, n_points: int, domain: IntervalDomain, 
 
 def build_mixed_paths(N_d: int, n_points: int, domain: IntervalDomain, space: Lebesgue):
     """Scenario 4: half kernels batched (no metadata), half fallback (overlap).
-    
+
     n_batched = N_d // 2 (sine kernels, no support metadata)
     n_fallback = N_d - N_d // 2 (flat kernels with overlapping support)
 

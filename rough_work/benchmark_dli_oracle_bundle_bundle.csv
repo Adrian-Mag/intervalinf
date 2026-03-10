@@ -1,0 +1,5 @@
+N_d,direction,forward_seed,data_seed,converged,num_iterations,gap,support_value,elapsed_s,oracle_frac,master_frac,ds_oracle_calls,ds_total_oracle_s,ds_gstar_s,ds_support_pt_model_s,ds_support_pt_data_s,ds_support_val_model_s,ds_support_val_data_s,ds_sp_failures,ds_fd_fallbacks,ds_fd_time_s,bs_master_solves,bs_master_time_s,bs_null_steps,bs_serious_steps,bs_pb_oracle_time_s
+5,+q,2,42,True,9,3.933e-05,1.70213238,0.175873,0.9478,0.051,10,0.166685,0.000441,0.051252,0.000136,0.076387,0.000125,0,0,0.0,9,0.008969,5,4,0.166739
+5,-q,2,42,True,12,1.279e-05,0.69972618,0.233742,0.9483,0.0506,13,0.221665,0.00056,0.068619,0.000226,0.101357,0.000141,0,0,0.0,12,0.011825,6,6,0.22172
+10,+q,2,42,True,12,9.598e-05,1.69660007,0.348927,0.9575,0.042,13,0.334095,0.000608,0.102667,0.000198,0.152984,0.00019,0,0,0.0,12,0.014651,6,6,0.334157
+10,-q,2,42,True,23,2.076e-05,0.69027287,0.703313,0.9575,0.0419,24,0.673453,0.001367,0.208505,0.000513,0.309356,0.00041,0,0,0.0,23,0.02948,12,11,0.673598
