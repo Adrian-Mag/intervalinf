@@ -41,7 +41,7 @@ the measured $N_d = 5 \to 10$ case.
 Three targets were selected, ordered by expected payoff-to-risk ratio.  All
 others are deferred; see §5 for explicit reasoning.
 
-### Target A — Eliminate Duplicated Support Evaluations (T1-A)
+### Target A — Eliminate Duplicated Support Evaluations (T1-A) ✅ DONE (Phase 3, 2026-03-10)
 
 **What to change:** In `DualMasterCostFunction.value_and_subgradient`
 (`pygeoinf/pygeoinf/backus_gilbert.py`), replace the separate
@@ -52,23 +52,7 @@ $$\sigma_C(q) = \langle q, v \rangle$$
 No second pass through the support-function code is needed.  The finite-
 difference fallback path (when `support_point` returns `None`) is unchanged.
 
-**Why it is the highest priority:** `support_value_model` is ~46% of oracle
-time. Oracle is ~95% of total. Eliminating this sub-call alone reduces total
-solve time by an estimated **30–44%**, depending on how much of the removed
-work is replaced by the inner-product evaluation (which is cheap on `Lebesgue`
-via cached basis coefficients).
-
-**Files:** `pygeoinf/pygeoinf/backus_gilbert.py` (primary).  Optionally
-`pygeoinf/pygeoinf/convex_analysis.py` if a combined
-`value_and_support_point` API is preferred.
-
-**Estimated payoff:** 30–44% reduction in total solve time (conservative lower
-bound excludes inner-product replacement cost; upper bound assumes negligible
-inner-product cost).
-
-**Risk:** Low.  The identity is exact for any proper convex support function
-when $v$ is a true maximizer.  A purely local change in the oracle; no
-algorithmic impact on the bundle solver.
+**Implementation:** Used the fused `value_and_support_point` API (Phase 2) which returns `(scalar, point)` in one call. `BallSupportFunction.value_and_support_point` does not call `_mapping`, so no duplicate scalar evaluation occurs.
 
 ---
 
@@ -99,19 +83,14 @@ compact-support kernels (enforced by existing tests) must both be preserved.
 
 ---
 
-### Target C — Cache Adjoint Operator Object (T1-B)
+### Target C — Cache Adjoint Operator Object (T1-B) ✅ DONE (Phase 3, 2026-03-10)
 
 **What to change:** In `DualMasterCostFunction.__init__`
 (`pygeoinf/pygeoinf/backus_gilbert.py`), store `self._G_adj = self._G.adjoint`
 once and call `self._G_adj(lam)` in each oracle invocation instead of
 accessing `self._G.adjoint` on every call (which allocates a new wrapper).
 
-**Files:** `pygeoinf/pygeoinf/backus_gilbert.py`.
-
-**Estimated payoff:** <1% of total solve time. Included as a zero-risk
-mechanical cleanup; not a primary speedup driver.
-
-**Risk:** Negligible.
+**Implementation:** `self._G_adj = G.adjoint` cached in `__init__`; used in `_mapping`, `_subgradient`, and `value_and_subgradient`.
 
 ---
 
@@ -225,7 +204,7 @@ Artifacts produced: `benchmark_dli_oracle_bundle_oracle.csv`,
 `benchmark_dli_oracle_bundle_bundle.csv`, `benchmark_dli_oracle_bundle_warmstart.csv`.
 
 Columns to check:
-- `oracle.csv`: `support_val_model_s` should be near-zero vs baseline, while `support_pt_model_s` remains of the same order.
+- `oracle.csv`: `support_val_model_s` should be near-zero vs baseline (fast path no longer calls `_mapping` separately). `support_pt_model_s` is expected to be **larger** than the pre-fusion baseline because it now times the fused `value_and_support_point` call (which incorporates the old separate support-value work); the combined `support_pt_model_s + support_val_model_s` should be lower than the pre-fusion sum.
 - `bundle.csv`: `support_value` and `gap` should match baseline within the numerical thresholds from §3.1.
 - `bundle.csv`: `elapsed_s` should be ≥ 20% lower than the pre-change baseline on the measured cases.
 
