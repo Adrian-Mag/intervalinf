@@ -3,7 +3,7 @@
 Phase 4 synthesized the benchmark evidence from Phases 1–3 into a ranked analysis report identifying seven concrete optimization targets across pygeoinf and intervalinf. The report corrects oracle sub-operation percentages against the actual Phase 3 CSV data and ranks targets by estimated payoff, risk, and implementation complexity. The top target (T1-A: eliminate duplicated support evaluations) addresses ~46% of oracle time with a low-risk local code change.
 
 **Files created/changed:**
-- intervalinf/docs/agent-docs/references/dli-performance-analysis-and-speedup-targets.md
+- intervalinf/docs/agent-docs/references/living/dli-performance-analysis-and-speedup-targets.md
 - intervalinf/docs/agent-docs/references/living/intervalinf-reference.md
 
 **Functions created/changed:**
@@ -23,7 +23,7 @@ docs(dli): add performance analysis and ranked speedup targets
 - oracle breakdown corrected from Phase 3 CSV (support_value_model ~46%)
 - update intervalinf living reference with analysis report pointer
 
-Plan: intervalinf/docs/agent-docs/active-plans/dli-benchmarking-and-analysis-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/dli-benchmarking-and-analysis-plan.md
 Phase: 4 of 5
-Related: intervalinf/docs/agent-docs/active-plans/dli-benchmarking-and-analysis-phase-4-complete.md
+Related: intervalinf/docs/agent-docs/completed-plans/dli-benchmarking-and-analysis-phase-4-complete.md
 ```

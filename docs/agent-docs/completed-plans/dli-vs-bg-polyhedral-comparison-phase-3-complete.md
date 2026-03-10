@@ -55,7 +55,7 @@ feat(demos): add comparative diagnostics and final polish
 - Add savefig export of comparison figure (PNG + PDF)
 - Add interpretation and final summary markdown cells
 
-Plan: intervalinf/docs/agent-docs/active-plans/dli-vs-bg-polyhedral-comparison-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/dli-vs-bg-polyhedral-comparison-plan.md
 Phase: 3 of 3
-Related: intervalinf/docs/agent-docs/active-plans/dli-vs-bg-polyhedral-comparison-phase-3-complete.md
+Related: intervalinf/docs/agent-docs/completed-plans/dli-vs-bg-polyhedral-comparison-phase-3-complete.md
 ```

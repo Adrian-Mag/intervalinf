@@ -7,8 +7,8 @@ the dominant repeated integration costs, and the main invariants and constraints
 that must be preserved.
 
 **Files created/changed:**
-- `docs/agent-docs/active-plans/sola-operator-speedup-plan.md`
-- `docs/agent-docs/references/sola-operator-phase-1-audit.md`
+- `docs/agent-docs/completed-plans/sola-operator-speedup-plan.md`
+- `docs/agent-docs/references/legacy/research-reports/sola-operator-phase-1-audit.md`
 - `docs/agent-docs/completed-plans/sola-operator-speedup-phase-1-complete.md`
 
 **Functions created/changed:**
@@ -26,6 +26,6 @@ docs(sola): record SOLAOperator phase 1 audit
 - Record preserved invariants, current inefficiencies, and risks
 - Capture Phase 2 benchmark surfaces and test gaps
 
-Plan: intervalinf/docs/agent-docs/active-plans/sola-operator-speedup-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/sola-operator-speedup-plan.md
 Phase: 1 of 6
 Related: intervalinf/docs/agent-docs/completed-plans/sola-operator-speedup-phase-1-complete.md

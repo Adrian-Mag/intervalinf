@@ -20,6 +20,6 @@ docs(agent-docs): reconcile intervalinf plan status metadata
 - Confirm convex-update Phase 4 metadata stays aligned with its changelog
 - Record Phase 2 completion for the agent-doc audit plan
 
-Plan: docs/agent-docs/active-plans/intervalinf-agent-docs-audit-plan.md
+Plan: docs/agent-docs/completed-plans/intervalinf-agent-docs-audit-plan.md
 Phase: 2 of 3
 Related: docs/agent-docs/completed-plans/intervalinf-agent-docs-audit-phase-2-complete.md

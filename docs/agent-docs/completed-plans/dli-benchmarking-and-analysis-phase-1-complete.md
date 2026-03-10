@@ -35,6 +35,6 @@ feat(dli): add passive proximal-bundle instrumentation
 - add intervalinf rough-work harness validating instrumentation consistency
 - update living references for the new instrumentation API and benchmark
 
-Plan: intervalinf/docs/agent-docs/active-plans/dli-benchmarking-and-analysis-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/dli-benchmarking-and-analysis-plan.md
 Phase: 1 of 5
-Related: intervalinf/docs/agent-docs/active-plans/dli-benchmarking-and-analysis-phase-1-complete.md
+Related: intervalinf/docs/agent-docs/completed-plans/dli-benchmarking-and-analysis-phase-1-complete.md

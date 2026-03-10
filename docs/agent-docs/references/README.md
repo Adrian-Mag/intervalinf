@@ -5,17 +5,20 @@ This folder contains **living reference documents** and **legacy archives** for 
 ## Structure
 
 ### `living/`
-**Active, maintained architecture and API references.**
+**Active, maintained references.**
 
 - `intervalinf-reference.md` — Current package architecture, spaces, operators, providers, APIs
   - **Agents must read this FIRST before exploring source files**
   - Updated: immediately after code changes (by Sisyphus-subagent)
   - Lifecycle: never becomes stale (updated every phase)
+- Other current planning support references, performance analyses, and roadmaps that are still operational should also live here.
 
 ### `legacy/`
 **Archived artifacts: superseded plans and research reports.**
 
 Contains archive subdirectories for legacy research reports and superseded plan artifacts.
+
+No standalone reference markdown files should live directly under `references/` other than this `README.md`. Place every reference document in either `living/` or `legacy/`.
 
 ---
 

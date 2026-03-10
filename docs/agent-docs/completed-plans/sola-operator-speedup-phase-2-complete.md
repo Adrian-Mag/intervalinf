@@ -9,7 +9,7 @@ adjoint, and `DualMasterCostFunction.value_and_subgradient(...)` workloads.
 - `tests/operators/test_sola.py`
 - `rough_work/benchmark_sola_baseline.py`
 - `docs/agent-docs/references/living/intervalinf-reference.md`
-- `docs/agent-docs/active-plans/sola-operator-speedup-plan.md`
+- `docs/agent-docs/completed-plans/sola-operator-speedup-plan.md`
 - `docs/agent-docs/completed-plans/sola-operator-speedup-phase-2-complete.md`
 
 **Functions created/changed:**
@@ -37,6 +37,6 @@ test(sola): add SOLAOperator baseline tests and benchmarks
 - Add rough-work baseline benchmark for forward, adjoint, and dual-master hotspot timings
 - Update living reference with SOLA test coverage, benchmark harness, and known quirks
 
-Plan: intervalinf/docs/agent-docs/active-plans/sola-operator-speedup-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/sola-operator-speedup-plan.md
 Phase: 2 of 6
 Related: intervalinf/docs/agent-docs/completed-plans/sola-operator-speedup-phase-2-complete.md

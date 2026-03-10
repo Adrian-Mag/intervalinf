@@ -10,7 +10,7 @@ implementation changes were needed.
 - `rough_work/benchmark_phase6_comparison.py`
 - `rough_work/benchmark_phase6_results.csv`
 - `docs/agent-docs/references/living/intervalinf-reference.md`
-- `docs/agent-docs/active-plans/sola-operator-speedup-plan.md`
+- `docs/agent-docs/completed-plans/sola-operator-speedup-plan.md`
 - `docs/agent-docs/completed-plans/sola-operator-speedup-phase-6-complete.md`
 
 **Functions created/changed:**
@@ -39,6 +39,6 @@ docs(sola): finalize validation and comparison report
 - Update the living reference and active plan with the final validated performance and accuracy findings
 - Confirm the full intervalinf suite passes in the final SOLAOperator speedup state
 
-Plan: intervalinf/docs/agent-docs/active-plans/sola-operator-speedup-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/sola-operator-speedup-plan.md
 Phase: 6 of 6
 Related: intervalinf/docs/agent-docs/completed-plans/sola-operator-speedup-phase-6-complete.md

@@ -1,3 +1,6 @@
+> Archived to `references/legacy/` on 2026-03-10.
+> Historical audit note for the completed `SOLAOperator_speedup` project.
+
 # SOLAOperator Phase 1 Audit
 
 ## Scope

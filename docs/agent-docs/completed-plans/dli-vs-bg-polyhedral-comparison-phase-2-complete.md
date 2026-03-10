@@ -27,6 +27,6 @@ feat(demos): add BG polyhedral comparison path
 - Build the BG admissible polyhedron with the same editable N_theta directions as DLI
 - Add an exact overlay plot from stored PolyhedralSet objects with validation coverage
 
-Plan: intervalinf/docs/agent-docs/active-plans/dli-vs-bg-polyhedral-comparison-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/dli-vs-bg-polyhedral-comparison-plan.md
 Phase: 2 of 3
-Related: intervalinf/docs/agent-docs/active-plans/dli-vs-bg-polyhedral-comparison-phase-2-complete.md
+Related: intervalinf/docs/agent-docs/completed-plans/dli-vs-bg-polyhedral-comparison-phase-2-complete.md

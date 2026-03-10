@@ -20,6 +20,6 @@ docs(agent-docs): refresh intervalinf living reference
 - Align package metadata and optional extras with pyproject.toml
 - Record Phase 3 completion for the agent-doc audit plan
 
-Plan: docs/agent-docs/active-plans/intervalinf-agent-docs-audit-plan.md
+Plan: docs/agent-docs/completed-plans/intervalinf-agent-docs-audit-plan.md
 Phase: 3 of 3
 Related: docs/agent-docs/completed-plans/intervalinf-agent-docs-audit-phase-3-complete.md

@@ -73,7 +73,7 @@ any optimization is attempted.
 - Identified support-propagation and integration-method inconsistencies that should be
   addressed before or alongside acceleration work.
 - Wrote the audit note:
-  `intervalinf/docs/agent-docs/references/sola-operator-phase-1-audit.md`.
+  `intervalinf/docs/agent-docs/references/legacy/research-reports/sola-operator-phase-1-audit.md`.
 
 ---
 

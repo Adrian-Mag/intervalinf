@@ -23,6 +23,7 @@ Exploration reports, research summaries, and **living reference documents**.
 - **Purpose:**
   - Intermediate findings used to inform planning
   - **Living architecture references** (`*-reference.md`) — describe package structure, class hierarchies, APIs
+- **Placement rule:** aside from `references/README.md`, every reference markdown file should live in either `references/living/` or `references/legacy/`
 - **Key file:** `references/living/intervalinf-reference.md` — agents **must read this first** before exploring source files
 - **Retention:** Keep indefinitely; references especially valuable for agent learning
 

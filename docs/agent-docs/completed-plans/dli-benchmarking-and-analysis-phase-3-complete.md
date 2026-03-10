@@ -32,6 +32,6 @@ feat(dli): benchmark oracle and bundle cost breakdowns
 - capture DualMasterStats and ProximalBundleStats in CSV outputs and stdout summaries
 - update the intervalinf living reference for the new benchmark workflow
 
-Plan: intervalinf/docs/agent-docs/active-plans/dli-benchmarking-and-analysis-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/dli-benchmarking-and-analysis-plan.md
 Phase: 3 of 5
-Related: intervalinf/docs/agent-docs/active-plans/dli-benchmarking-and-analysis-phase-3-complete.md
+Related: intervalinf/docs/agent-docs/completed-plans/dli-benchmarking-and-analysis-phase-3-complete.md

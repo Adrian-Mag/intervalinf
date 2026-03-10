@@ -4,7 +4,7 @@ Created a new comparison notebook for the DLI vs BG study with editable `N_d`, `
 
 **Files created/changed:**
 - intervalinf/demos/convex_analysis/dli_vs_bg_polyhedral_comparison.ipynb
-- intervalinf/docs/agent-docs/active-plans/dli-vs-bg-polyhedral-comparison-plan.md
+- intervalinf/docs/agent-docs/completed-plans/dli-vs-bg-polyhedral-comparison-plan.md
 - intervalinf/docs/agent-docs/references/living/intervalinf-reference.md
 
 **Functions created/changed:**
@@ -27,6 +27,6 @@ feat(demos): add phase-1 DLI vs BG comparison notebook
 - Implement the common setup and DLI admissible polyhedron path for 2D property space
 - Add validation cells and update the intervalinf living reference for the new demo
 
-Plan: intervalinf/docs/agent-docs/active-plans/dli-vs-bg-polyhedral-comparison-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/dli-vs-bg-polyhedral-comparison-plan.md
 Phase: 1 of 3
-Related: intervalinf/docs/agent-docs/active-plans/dli-vs-bg-polyhedral-comparison-phase-1-complete.md
+Related: intervalinf/docs/agent-docs/completed-plans/dli-vs-bg-polyhedral-comparison-phase-1-complete.md

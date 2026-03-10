@@ -34,6 +34,6 @@ feat(sola): benchmark compact-support fallback routing
 - add a focused compact-support benchmark harness with routing and accuracy checks
 - extend SOLA coverage and update the living reference for Phase 2 tooling
 
-Plan: intervalinf/docs/agent-docs/active-plans/dli-benchmarking-and-analysis-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/dli-benchmarking-and-analysis-plan.md
 Phase: 2 of 5
-Related: intervalinf/docs/agent-docs/active-plans/dli-benchmarking-and-analysis-phase-2-complete.md
+Related: intervalinf/docs/agent-docs/completed-plans/dli-benchmarking-and-analysis-phase-2-complete.md

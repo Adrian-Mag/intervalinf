@@ -8,7 +8,7 @@ Aligned the `intervalinf` agent-doc entrypoints so they consistently point agent
 - `docs/agent-docs/references/README.md`
 - `docs/agent-docs/references/legacy/README.md`
 - `docs/agent-docs/active-plans/intervalinf-convex-update-plan.md`
-- `docs/agent-docs/active-plans/intervalinf-agent-docs-audit-plan.md`
+- `docs/agent-docs/completed-plans/intervalinf-agent-docs-audit-plan.md`
 
 **Functions created/changed:**
 - None
@@ -25,6 +25,6 @@ docs(agent-docs): fix intervalinf reference navigation
 - Reconcile index and archive descriptions with the current docs tree
 - Mark convex-update Phase 4 complete and align its path metadata
 
-Plan: docs/agent-docs/active-plans/intervalinf-agent-docs-audit-plan.md
+Plan: docs/agent-docs/completed-plans/intervalinf-agent-docs-audit-plan.md
 Phase: 1 of 3
 Related: docs/agent-docs/completed-plans/intervalinf-agent-docs-audit-phase-1-complete.md

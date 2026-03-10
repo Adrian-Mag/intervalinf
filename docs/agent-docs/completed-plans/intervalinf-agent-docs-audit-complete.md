@@ -14,7 +14,7 @@ Completed the `intervalinf` agent-documentation audit and refreshed the package 
 - `docs/agent-docs/references/legacy/README.md`
 - `docs/agent-docs/references/living/intervalinf-reference.md`
 - `docs/agent-docs/active-plans/intervalinf-convex-update-plan.md`
-- `docs/agent-docs/active-plans/intervalinf-agent-docs-audit-plan.md`
+- `docs/agent-docs/completed-plans/intervalinf-agent-docs-audit-plan.md`
 - `docs/agent-docs/completed-plans/intervalinf-agent-docs-audit-phase-1-complete.md`
 - `docs/agent-docs/completed-plans/intervalinf-agent-docs-audit-phase-2-complete.md`
 - `docs/agent-docs/completed-plans/intervalinf-agent-docs-audit-phase-3-complete.md`

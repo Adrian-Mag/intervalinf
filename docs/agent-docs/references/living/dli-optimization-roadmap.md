@@ -4,11 +4,11 @@ Evidence-based implementation roadmap for intervalinf-backed proximal-bundle
 DLI, derived from the Phase 4 performance analysis.
 
 **Prerequisites:**
-- Phase 4 analysis: `intervalinf/docs/agent-docs/references/dli-performance-analysis-and-speedup-targets.md`
+- Phase 4 analysis: `intervalinf/docs/agent-docs/references/living/dli-performance-analysis-and-speedup-targets.md`
 - Benchmark harnesses: `intervalinf/rough_work/benchmark_dli_oracle_bundle.py`, `intervalinf/rough_work/benchmark_phase2_compact_support.py`
 - Benchmark artifacts (CSV): `intervalinf/rough_work/benchmark_dli_oracle_bundle_oracle.csv`, `benchmark_dli_oracle_bundle_bundle.csv`, `benchmark_dli_oracle_bundle_warmstart.csv`, `benchmark_phase2_compact_support_results.csv`
 
-**Plan reference:** `intervalinf/docs/agent-docs/active-plans/dli-benchmarking-and-analysis-plan.md`, Phase 5.
+**Plan reference:** `intervalinf/docs/agent-docs/completed-plans/dli-benchmarking-and-analysis-plan.md`, Phase 5.
 
 ---
 

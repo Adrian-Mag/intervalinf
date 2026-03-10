@@ -13,7 +13,7 @@ benchmark.
 - `tests/operators/test_sola.py`
 - `rough_work/benchmark_phase4.py`
 - `docs/agent-docs/references/living/intervalinf-reference.md`
-- `docs/agent-docs/active-plans/sola-operator-speedup-plan.md`
+- `docs/agent-docs/completed-plans/sola-operator-speedup-plan.md`
 - `docs/agent-docs/completed-plans/sola-operator-speedup-phase-4-complete.md`
 
 **Functions created/changed:**
@@ -44,6 +44,6 @@ feat(sola): batch fixed-grid forward evaluation
 - Preserve support-restricted semantics with generic fallback and keep complex fixed-grid outputs intact
 - Add Phase 4 regression tests and a benchmark comparing batched and generic forward paths
 
-Plan: intervalinf/docs/agent-docs/active-plans/sola-operator-speedup-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/sola-operator-speedup-plan.md
 Phase: 4 of 6
 Related: intervalinf/docs/agent-docs/completed-plans/sola-operator-speedup-phase-4-complete.md

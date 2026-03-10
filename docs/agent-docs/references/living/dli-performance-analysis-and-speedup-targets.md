@@ -3,7 +3,7 @@
 Evidence-based analysis of DLI runtime distribution and ranked optimization
 opportunities, produced from Phases 1–3 of the DLI benchmarking plan.
 
-**Plan reference:** `intervalinf/docs/agent-docs/active-plans/dli-benchmarking-and-analysis-plan.md`, Phase 4.
+**Plan reference:** `intervalinf/docs/agent-docs/completed-plans/dli-benchmarking-and-analysis-plan.md`, Phase 4.
 
 ---
 

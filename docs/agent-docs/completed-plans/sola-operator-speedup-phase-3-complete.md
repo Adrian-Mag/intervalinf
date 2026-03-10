@@ -11,7 +11,7 @@ fixed-grid behavior explicit for later acceleration phases.
 - `intervalinf/operators/sola.py`
 - `tests/operators/test_sola.py`
 - `docs/agent-docs/references/living/intervalinf-reference.md`
-- `docs/agent-docs/active-plans/sola-operator-speedup-plan.md`
+- `docs/agent-docs/completed-plans/sola-operator-speedup-plan.md`
 - `docs/agent-docs/completed-plans/sola-operator-speedup-phase-3-complete.md`
 
 **Functions created/changed:**
@@ -43,6 +43,6 @@ fix(sola): clean up integration semantics before batching
 - Add fixed-grid versus adaptive integration metadata and preserve low-risk SOLA support propagation
 - Update SOLA tests and living references for the Phase 3 behavior contract
 
-Plan: intervalinf/docs/agent-docs/active-plans/sola-operator-speedup-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/sola-operator-speedup-plan.md
 Phase: 3 of 6
 Related: intervalinf/docs/agent-docs/completed-plans/sola-operator-speedup-phase-3-complete.md
