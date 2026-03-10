@@ -1018,6 +1018,10 @@ These scripts are NOT part of the test suite; they measure runtime performance a
 
 `docs/agent-docs/references/dli-performance-analysis-and-speedup-targets.md` — Phase 4 deliverable. Ranked optimization opportunities derived from Phase 1–3 benchmark evidence. Key findings: oracle dominates at ~95% of total solve time; within oracle, `support_value_model` is ~46% and `support_point_model` is ~31% (both model-prior operations on Lebesgue space); data-side operations are negligible (<0.1%). Top target: eliminate duplicated support evaluations (T1-A, est. 30–44% total speedup). See the report for full tier ranking (T1-A/B, T2-A/B/C, T3-A/B).
 
+### DLI Optimization Roadmap
+
+`docs/agent-docs/references/dli-optimization-roadmap.md` — Phase 5 deliverable. Concrete implementation roadmap grounded in Phase 4 evidence. Selects three targets (A: eliminate duplicated support evaluations, B: support-aware batched mesh for compact-support kernels, C: cache adjoint operator object) with acceptance metrics, workstream breakdowns, rollback criteria, and explicit deferral rationale for T2-B/C, T3-A/B, and warm-start enhancements. Benchmark artifacts and rerun commands are included.
+
 ---
 
 ## Demo Notebooks (`demos/convex_analysis/`)
