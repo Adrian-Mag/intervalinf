@@ -4,6 +4,14 @@
 
 `intervalinf` provides concrete implementations of Hilbert spaces for functions defined on 1D intervals, built directly on top of `pygeoinf`. The central design principle is **continuous-first**: functions are represented as callables over an `IntervalDomain` and inner products are computed by numerical integration, not matrix multiplication. Discretisation (choosing a finite basis) is opt-in. The package extends `pygeoinf`'s abstract algebra (Hilbert spaces, linear operators, linear forms, Gaussian measures) for the specific case where the model space is $L^2([a,b])$ or a Sobolev space $H^s([a,b])$.
 
+## Demo Notebooks
+
+The `intervalinf/demos/convex_analysis/` directory contains notebook-scale demonstrations of convex-analysis inversion workflows built on `intervalinf` and `pygeoinf`.
+
+- `dli.ipynb`: deterministic linear inference workflow with dual master-cost optimization.
+- `bg_with_errors_minkowski.ipynb`: Backus-Gilbert admissible-region construction with data errors using Minkowski-sum support-function algebra.
+- `dli_vs_bg_polyhedral_comparison.ipynb`: side-by-side comparison notebook for DLI and BG in the 2D property-space setting with editable `N_d`, `N_p`, and common polyhedral resolution `N_theta`.
+
 ---
 
 ## Package Metadata
