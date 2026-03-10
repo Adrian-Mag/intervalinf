@@ -4,7 +4,7 @@ Phase 2 adds one-dimensional DLI and BG admissible-interval solvers to the sweep
 
 **Files created/changed:**
 - `intervalinf/rough_work/bg_dli_1d_sweep.py`
-- `intervalinf/docs/agent-docs/active-plans/bg-dli-1d-sweep-plan.md`
+- `intervalinf/docs/agent-docs/completed-plans/bg-dli-1d-sweep-plan.md`
 
 **Functions created/changed:**
 - `compute_dli_interval`
@@ -36,6 +36,6 @@ feat(rough_work): add 1d dli and bg interval solvers
 - Add BG interval construction from estimator support algebra
 - Validate finite bounds, sign conventions, and width sanity
 
-Plan: intervalinf/docs/agent-docs/active-plans/bg-dli-1d-sweep-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/bg-dli-1d-sweep-plan.md
 Phase: 2 of 4
-Related: intervalinf/docs/agent-docs/active-plans/bg-dli-1d-sweep-phase-2-complete.md
+Related: intervalinf/docs/agent-docs/completed-plans/bg-dli-1d-sweep-phase-2-complete.md

@@ -40,7 +40,7 @@ feat(support): add fused value_and_support_point API to SupportFunction
 - 14 new tests covering default, ball, ellipsoid, q≈0 edge cases
 - Update pygeoinf living reference with new method entry
 
-Plan: intervalinf/docs/agent-docs/active-plans/dli-optimization-implementation-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/dli-optimization-implementation-plan.md
 Phase: 2 of 5
-Related: intervalinf/docs/agent-docs/active-plans/dli-optimization-implementation-phase-2-complete.md
+Related: intervalinf/docs/agent-docs/completed-plans/dli-optimization-implementation-phase-2-complete.md
 ```

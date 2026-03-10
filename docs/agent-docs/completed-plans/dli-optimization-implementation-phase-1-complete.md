@@ -25,6 +25,6 @@ test(oracle): add phase 1 optimization guardrails
 - Add failing guardrail for repeated adjoint access
 - Keep Phase 1 scoped to dual-master tests only
 
-Plan: intervalinf/docs/agent-docs/active-plans/dli-optimization-implementation-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/dli-optimization-implementation-plan.md
 Phase: 1 of 5
-Related: intervalinf/docs/agent-docs/active-plans/dli-optimization-implementation-phase-1-complete.md
+Related: intervalinf/docs/agent-docs/completed-plans/dli-optimization-implementation-phase-1-complete.md

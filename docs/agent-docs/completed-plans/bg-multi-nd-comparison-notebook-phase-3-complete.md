@@ -22,6 +22,6 @@ feat(notebook): add overlay plot and diagnostics for multi-nd comparison
 - Plot absolute admissible regions for all N_d values on one shared figure
 - Print diagnostic table: sigma_d, r_V, alpha, x/y widths per N_d
 
-Plan: intervalinf/docs/agent-docs/active-plans/bg-multi-nd-comparison-notebook-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/bg-multi-nd-comparison-notebook-plan.md
 Phase: 3 of 4
 Related: intervalinf/docs/agent-docs/completed-plans/bg-multi-nd-comparison-notebook-phase-3-complete.md

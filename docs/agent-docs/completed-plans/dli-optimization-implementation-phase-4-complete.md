@@ -30,6 +30,6 @@ feat(sola): add private support-mesh helper for fixed-grid compact supports
 - Pin multi-interval mesh allocation, tie-breaking, and duplicated-boundary behavior with 9 tests
 - Update intervalinf living reference for the new private helper and Phase 4 progress
 
-Plan: intervalinf/docs/agent-docs/active-plans/dli-optimization-implementation-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/dli-optimization-implementation-plan.md
 Phase: 4 of 5
-Related: intervalinf/docs/agent-docs/active-plans/dli-optimization-implementation-phase-4-complete.md
+Related: intervalinf/docs/agent-docs/completed-plans/dli-optimization-implementation-phase-4-complete.md

@@ -12,20 +12,7 @@ The `intervalinf/demos/convex_analysis/` directory contains notebook-scale demon
 - `bg_with_errors_minkowski.ipynb`: Backus-Gilbert admissible-region construction with data errors using Minkowski-sum support-function algebra.
 - `dli_vs_bg_polyhedral_comparison.ipynb`: side-by-side comparison notebook for DLI and BG in the 2D property-space setting with editable `N_d`, `N_p`, and common polyhedral resolution `N_theta`.
 
-## Rough Work / Standalone Scripts
 
-- `bg_dli_1d_sweep.py` (`intervalinf/rough_work/`): Standalone comparison script. Sweeps BG vs DLI admissible interval widths across `N_d ∈ {5, 10, 20, 40}`, 3 forward-operator seeds, and 3 data seeds (36 cases total). Generates CSV outputs (`bg_dli_1d_sweep_results/`) and PNG/PDF plots (`bg_dli_1d_sweep_figures/`). Run with: `conda run -n inferences3 python intervalinf/rough_work/bg_dli_1d_sweep.py`
-
-- `benchmark_phase2_compact_support.py` (`intervalinf/rough_work/`): Phase 2 benchmark harness. Measures the timing penalty of losing the batched fixed-grid cache path when overlapping compact-support metadata forces per-kernel fallback integration. Covers four scenarios (`full_domain`, `disjoint_support`, `overlapping_fallback`, `mixed_paths`), sweeps `N_d ∈ {5, 10, 20, 40}` and `n_points ∈ {500, 1000, 2000}`, validates accuracy against adaptive references, and enforces built-in counterassertions per scenario. Emits a CSV artifact `benchmark_phase2_compact_support_results.csv`. Run with: `conda run -n inferences3 python intervalinf/rough_work/benchmark_phase2_compact_support.py`
-
-- `benchmark_dli_oracle_bundle.py` (`intervalinf/rough_work/`): Phase 3 benchmark harness. Three focused measurement modes, proxy for: **where does proximal-bundle DLI time go?**
-  - **oracle**: times isolated `DualMasterCostFunction.value_and_subgradient` calls at random dual points; reports per-call breakdown from `DualMasterStats` (`G*λ` apply, `support_point` model, `support_point` data, scalar support-value evaluations, finite-difference fallbacks).
-  - **bundle**: full proximal-bundle solve for `+q` and `−q` directions from zero start; reports `DualMasterStats` and `ProximalBundleStats` breakdowns (oracle fraction, master-QP fraction, serious/null step counts) alongside convergence and duality gap.
-  - **warmstart**: nested-N_d experiment — solves the `+q` support value for N_small (cold), pads the optimal dual vector with zeros to N_large dimension, then re-solves N_large from that warm start; compares iteration count and wall-clock speedup.
-  - Emits three CSV artifacts: `benchmark_dli_oracle_bundle_oracle.csv`, `benchmark_dli_oracle_bundle_bundle.csv`, `benchmark_dli_oracle_bundle_warmstart.csv`.
-  - Reuses builders from `bg_dli_1d_sweep.py` (identical chi-square–calibrated problem instances).
-  - Built-in assertions: oracle-call counts match `n_reps`, cumulative oracle time ≤ wall time, `ProximalBundleStats` oracle time ≤ 2× `DualMasterStats` total, zero-padding correctness.
-  - Run with: `conda run -n inferences3 python intervalinf/rough_work/benchmark_dli_oracle_bundle.py`
 
 ---
 
@@ -48,7 +35,7 @@ pip install "intervalinf[all]"    # includes dev, docs, plotting
 pip install -e ".[dev]"           # editable development install
 ```
 
-**Last Updated:** 2026-03-10
+**Last Updated:** 2026-03-10 (Phase 1 merge-prep: demo/README discoverability fixes, benchmark scripts marked for removal)
 
 ---
 

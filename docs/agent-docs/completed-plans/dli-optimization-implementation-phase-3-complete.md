@@ -34,6 +34,6 @@ feat(oracle): fuse dual-master support evaluation path
 - Make the Phase 1 oracle guardrail tests pass
 - Update pygeoinf and roadmap references for fused timing semantics
 
-Plan: intervalinf/docs/agent-docs/active-plans/dli-optimization-implementation-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/dli-optimization-implementation-plan.md
 Phase: 3 of 5
-Related: intervalinf/docs/agent-docs/active-plans/dli-optimization-implementation-phase-3-complete.md
+Related: intervalinf/docs/agent-docs/completed-plans/dli-optimization-implementation-phase-3-complete.md

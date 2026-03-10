@@ -25,6 +25,6 @@ feat(notebook): validate multi-nd notebook end to end
 - Add an interpretation caveat about non-monotone intermediate widths in the notebook intro
 - Sync the intervalinf living reference with the completed overlay and validation state
 
-Plan: intervalinf/docs/agent-docs/active-plans/bg-multi-nd-comparison-notebook-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/bg-multi-nd-comparison-notebook-plan.md
 Phase: 4 of 4
 Related: intervalinf/docs/agent-docs/completed-plans/bg-multi-nd-comparison-notebook-phase-4-complete.md

@@ -6,7 +6,7 @@ Phase 3 adds the full multi-seed BG-vs-DLI sweep across all configured `N_d`, fo
 - `intervalinf/rough_work/bg_dli_1d_sweep.py`
 - `intervalinf/rough_work/bg_dli_1d_sweep_results/bg_dli_raw.csv`
 - `intervalinf/rough_work/bg_dli_1d_sweep_results/bg_dli_summary_by_nd.csv`
-- `intervalinf/docs/agent-docs/active-plans/bg-dli-1d-sweep-plan.md`
+- `intervalinf/docs/agent-docs/completed-plans/bg-dli-1d-sweep-plan.md`
 
 **Functions created/changed:**
 - `_results_dir`
@@ -48,6 +48,6 @@ feat(rough_work): add bg dli sweep metrics and csv outputs
 - Compute BG vs DLI gap metrics and aggregate them by N_d
 - Write raw and summary CSV outputs with strict containment validation
 
-Plan: intervalinf/docs/agent-docs/active-plans/bg-dli-1d-sweep-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/bg-dli-1d-sweep-plan.md
 Phase: 3 of 4
-Related: intervalinf/docs/agent-docs/active-plans/bg-dli-1d-sweep-phase-3-complete.md
+Related: intervalinf/docs/agent-docs/completed-plans/bg-dli-1d-sweep-phase-3-complete.md

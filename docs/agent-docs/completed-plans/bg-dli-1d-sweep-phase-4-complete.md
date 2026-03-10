@@ -32,7 +32,7 @@ feat(rough_work): add plots and summary for bg dli sweep
 - Update intervalinf living reference with bg_dli_1d_sweep.py entry
 - Fix matplotlib import order to avoid E402 warnings
 
-Plan: intervalinf/docs/agent-docs/active-plans/bg-dli-1d-sweep-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/bg-dli-1d-sweep-plan.md
 Phase: 4 of 4
-Related: intervalinf/docs/agent-docs/active-plans/bg-dli-1d-sweep-phase-4-complete.md
+Related: intervalinf/docs/agent-docs/completed-plans/bg-dli-1d-sweep-phase-4-complete.md
 ```

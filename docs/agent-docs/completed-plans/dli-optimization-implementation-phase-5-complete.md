@@ -46,6 +46,6 @@ feat(sola): batch compact-support fixed-grid integration by support group
 - Batch restricted-mesh integration while preserving multi-interval and disjoint-support semantics
 - Defer full-domain mesh and f evaluation unless a full-domain batched kernel is present
 
-Plan: intervalinf/docs/agent-docs/active-plans/dli-optimization-implementation-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/dli-optimization-implementation-plan.md
 Phase: 5 of 5
-Related: intervalinf/docs/agent-docs/active-plans/dli-optimization-implementation-phase-5-complete.md
+Related: intervalinf/docs/agent-docs/completed-plans/dli-optimization-implementation-phase-5-complete.md

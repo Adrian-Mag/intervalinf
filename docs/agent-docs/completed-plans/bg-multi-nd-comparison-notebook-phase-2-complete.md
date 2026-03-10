@@ -23,6 +23,6 @@ feat(notebook): implement multi-nd BG execution pipeline
 - Validate stored geometry, PolyhedralSet construction, and p_bar containment
 - Sync intervalinf living reference with the implemented multi-N_d workflow
 
-Plan: intervalinf/docs/agent-docs/active-plans/bg-multi-nd-comparison-notebook-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/bg-multi-nd-comparison-notebook-plan.md
 Phase: 2 of 4
 Related: intervalinf/docs/agent-docs/completed-plans/bg-multi-nd-comparison-notebook-phase-2-complete.md

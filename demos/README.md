@@ -3,50 +3,49 @@
 Interactive Jupyter notebooks demonstrating the capabilities of the `intervalinf` package
 for interval-based function spaces and probabilistic inference.
 
-## Demo Organization
+## Core Package Notebooks
 
-### 1. Foundations
-- **01_interval_domain.ipynb** - Intervals, domains, and integration
-- **02_functions.ipynb** - Creating and manipulating functions on intervals
-- **03_function_arithmetic.ipynb** - Function operations and calculus
+| Notebook | Topic |
+| :------- | :---- |
+| `1_interval_domain_demo.ipynb` | `IntervalDomain` basics: meshing, integration, subdomain operations |
+| `2_functions_demo.ipynb` | Creating and evaluating `Function` objects in standalone and space-attached modes |
+| `3_lebesgue_space_demo.ipynb` | `Lebesgue` L² space construction, inner products, and basis representations |
+| `3.1_kernel_functionals_demo.ipynb` | Kernel-based linear forms (`LinearFormKernel`) |
+| `4_function_and_basis_providers_demo.ipynb` | Basis/eigenvalue providers (sine, cosine, hat, FEM, smooth) |
+| `5_gradient_operator_demo.ipynb` | `Gradient` operator: construction, adjoint, and spectral properties |
+| `6_laplacian_operator_demo.ipynb` | `Laplacian` and `InverseLaplacian`: Green's functions and covariance operators |
 
-### 2. Function Spaces
-- **04_lebesgue_spaces.ipynb** - L² spaces and basis representations
-- **05_sobolev_spaces.ipynb** - Sobolev spaces and smoothness priors
-- **06_weighted_spaces.ipynb** - Mass-weighted inner products
+## Convex-Analysis / DLI Demos (`convex_analysis/`)
 
-### 3. Operators
-- **07_laplacian.ipynb** - Laplacian operator and boundary conditions
-- **08_inverse_laplacian.ipynb** - Green's functions and covariance operators
-- **09_bessel_sobolev.ipynb** - Bessel potential operators
+End-to-end workflow notebooks combining `intervalinf` operators with `pygeoinf`'s
+convex-analysis inversion stack.
 
-### 4. Probabilistic Linear Inference
-- **10_gaussian_measures.ipynb** - Gaussian measures on function spaces
-- **11_kl_expansion.ipynb** - Karhunen-Loève sampling
-- **12_linear_inference.ipynb** - Bayesian inference with linear observations
-
-### 5. Advanced Topics
-- **13_discontinuities.ipynb** - Handling discontinuous functions
-- **14_boundary_conditions.ipynb** - Advanced boundary condition handling
-- **15_radial_operators.ipynb** - Spherical coordinate operators
+| Notebook | Topic |
+| :------- | :---- |
+| `convex_analysis/dli.ipynb` | Deterministic Linear Inference (DLI) via dual proximal-bundle optimization |
+| `convex_analysis/dli_vs_bg_polyhedral_comparison.ipynb` | Side-by-side DLI vs Backus-Gilbert admissible-region comparison with configurable `N_d`, `N_p` |
+| `convex_analysis/bg_with_errors_minkowski.ipynb` | Backus-Gilbert admissible regions with data errors using Minkowski-sum support-function algebra |
+| `convex_analysis/bg_with_errors_minkowski_multi_nd.ipynb` | Multi-`N_d` comparison of BG admissible regions |
 
 ## Running the Demos
 
-Ensure you have `intervalinf` installed:
+Ensure you have `intervalinf` and `pygeoinf` installed:
 
 ```bash
-pip install -e /path/to/intervalinf
+conda activate inferences3
+# or: pip install -e /path/to/intervalinf -e /path/to/pygeoinf
 ```
 
-Then launch Jupyter:
+Then launch Jupyter from the project root:
 
 ```bash
-jupyter lab demos/
+jupyter lab intervalinf/demos/
 ```
 
 ## Prerequisites
 
-Each notebook includes the necessary imports. The package dependencies are:
+Each notebook includes the necessary imports. Core dependencies:
 - numpy
 - scipy
 - matplotlib (for visualization)
+- pygeoinf (required by convex-analysis notebooks)

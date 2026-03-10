@@ -29,6 +29,6 @@ feat(notebook): add multi-nd BG comparison skeleton
 - Add reusable single-case helper functions and config cell
 - Update intervalinf reference with the new demo notebook
 
-Plan: intervalinf/docs/agent-docs/active-plans/bg-multi-nd-comparison-notebook-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/bg-multi-nd-comparison-notebook-plan.md
 Phase: 1 of 4
 Related: intervalinf/docs/agent-docs/completed-plans/bg-multi-nd-comparison-notebook-phase-1-complete.md

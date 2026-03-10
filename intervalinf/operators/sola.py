@@ -112,12 +112,10 @@ class SOLAOperator(LinearOperator):
         # Store integration config
         self.integration = integration_config
 
-        # Phase 5: shared mesh reuse.
         # The mesh depends only on domain bounds and n_points, both immutable
         # after construction, so it is safe to build once and reuse forever.
         self._shared_mesh: Optional[np.ndarray] = None
 
-        # Phase 5: kernel mesh evaluation cache.
         # Maps kernel index → ndarray of values on the shared fixed-grid mesh.
         # Populated for kernels that take the batched path. Fallback to the
         # generic path happens only when a support intersection is explicitly
@@ -128,8 +126,6 @@ class SOLAOperator(LinearOperator):
             {} if cache_kernels else None
         )
 
-        # Phase 2 instrumentation — lightweight passive counters.
-        # All counters are ints/floats; collection overhead is negligible.
         self._stats: dict = {
             "forward_calls": 0,
             "disjoint_skips": 0,
@@ -549,7 +545,6 @@ class SOLAOperator(LinearOperator):
             batched_indices = []
             batched_rows = []
             for i, kernel in full_domain_kernels:
-                # Phase 5: reuse cached kernel mesh evaluation when available.
                 if self._kernel_eval_cache is not None and i in self._kernel_eval_cache:
                     k_vals = self._kernel_eval_cache[i]
                 else:
@@ -784,8 +779,6 @@ class SOLAOperator(LinearOperator):
         """
         if self.cache_kernels and self._kernels_cache is not None:
             self._kernels_cache.clear()
-        # Phase 5: also clear cached kernel mesh evaluations so stale values
-        # are not retained after the kernel objects themselves are evicted.
         self.clear_mesh_cache()
 
     def get_cache_info(self) -> dict:

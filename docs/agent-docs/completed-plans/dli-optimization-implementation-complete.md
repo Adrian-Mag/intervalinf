@@ -19,12 +19,12 @@ This plan delivered the targeted DLI performance improvements across both `pygeo
 - intervalinf/tests/operators/test_sola.py
 - intervalinf/docs/agent-docs/references/living/intervalinf-reference.md
 - intervalinf/docs/agent-docs/references/living/dli-optimization-roadmap.md
-- intervalinf/docs/agent-docs/active-plans/dli-optimization-implementation-phase-1-complete.md
-- intervalinf/docs/agent-docs/active-plans/dli-optimization-implementation-phase-2-complete.md
-- intervalinf/docs/agent-docs/active-plans/dli-optimization-implementation-phase-3-complete.md
-- intervalinf/docs/agent-docs/active-plans/dli-optimization-implementation-phase-4-complete.md
-- intervalinf/docs/agent-docs/active-plans/dli-optimization-implementation-phase-5-complete.md
-- intervalinf/docs/agent-docs/active-plans/dli-optimization-implementation-plan.md
+- intervalinf/docs/agent-docs/completed-plans/dli-optimization-implementation-phase-1-complete.md
+- intervalinf/docs/agent-docs/completed-plans/dli-optimization-implementation-phase-2-complete.md
+- intervalinf/docs/agent-docs/completed-plans/dli-optimization-implementation-phase-3-complete.md
+- intervalinf/docs/agent-docs/completed-plans/dli-optimization-implementation-phase-4-complete.md
+- intervalinf/docs/agent-docs/completed-plans/dli-optimization-implementation-phase-5-complete.md
+- intervalinf/docs/agent-docs/completed-plans/dli-optimization-implementation-plan.md
 
 **Key Functions/Classes Added:**
 - SupportFunction.value_and_support_point

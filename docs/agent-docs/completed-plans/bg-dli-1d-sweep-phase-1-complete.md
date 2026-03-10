@@ -4,7 +4,7 @@ Phase 1 establishes the new 1D BG-vs-DLI sweep script scaffold in `intervalinf/r
 
 **Files created/changed:**
 - `intervalinf/rough_work/bg_dli_1d_sweep.py`
-- `intervalinf/docs/agent-docs/active-plans/bg-dli-1d-sweep-plan.md`
+- `intervalinf/docs/agent-docs/completed-plans/bg-dli-1d-sweep-plan.md`
 
 **Functions created/changed:**
 - `build_integration_configs`
@@ -34,6 +34,6 @@ feat(rough_work): scaffold 1d bg dli sweep script
 - Build shared operators, synthetic data, and confidence-set helpers
 - Validate nested forward kernels and independent noise seeds
 
-Plan: intervalinf/docs/agent-docs/active-plans/bg-dli-1d-sweep-plan.md
+Plan: intervalinf/docs/agent-docs/completed-plans/bg-dli-1d-sweep-plan.md
 Phase: 1 of 4
-Related: intervalinf/docs/agent-docs/active-plans/bg-dli-1d-sweep-phase-1-complete.md
+Related: intervalinf/docs/agent-docs/completed-plans/bg-dli-1d-sweep-phase-1-complete.md
