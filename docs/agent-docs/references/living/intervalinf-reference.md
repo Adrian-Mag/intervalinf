@@ -12,6 +12,11 @@ The `intervalinf/demos/convex_analysis/` directory contains notebook-scale demon
 - `bg_with_errors_minkowski.ipynb`: Backus-Gilbert admissible-region construction with data errors using Minkowski-sum support-function algebra.
 - `dli_vs_bg_polyhedral_comparison.ipynb`: side-by-side comparison notebook for DLI and BG in the 2D property-space setting with editable `N_d`, `N_p`, and common polyhedral resolution `N_theta`.
 
+The `intervalinf/demos/old_demos/paper_demos/` directory contains paper-oriented comparison notebooks and legacy prototypes.
+
+- `example_3.ipynb`: older posterior-uncertainty demo retained as a legacy reference point.
+- `premature_discretization_posterior_uncertainty.ipynb`: continuous-vs-discretized Bayesian comparison notebook showing that posterior property uncertainty is preserved by covariance-eigenfunction truncation but distorted by naive discretize-first identity priors.
+
 
 
 ---
@@ -35,7 +40,7 @@ pip install "intervalinf[all]"    # includes dev, docs, plotting
 pip install -e ".[dev]"           # editable development install
 ```
 
-**Last Updated:** 2026-03-10 (Phase 1 merge-prep: demo/README discoverability fixes, benchmark scripts marked for removal)
+**Last Updated:** 2026-03-10 (Added premature-discretization posterior-uncertainty paper demo and archived completed implementation plan)
 
 ---
 
