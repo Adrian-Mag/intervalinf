@@ -142,20 +142,30 @@ class LinearFormKernel(LinearForm):
         # Import here to avoid circular import at module level
         from intervalinf.core.functions import Function
 
+        def _eval(k, vi):
+            """Recursively evaluate kernel k against vector vi.
+
+            Handles arbitrary nesting that arises when a
+            LebesgueSpaceDirectSum contains another LebesgueSpaceDirectSum
+            as a component: in that case the kernel list and the input
+            vector both contain nested lists, and we must recurse rather
+            than attempt a list * list multiplication.
+            """
+            if isinstance(k, list):
+                return sum(_eval(ki, vii) for ki, vii in zip(k, vi))
+            return (k * vi).integrate(
+                weight=self._weight,
+                method=self.integration.method,
+                n_points=self.integration.n_points,
+            )
+
         if isinstance(self._kernel, list):
-            # Direct sum case: kernel and v are both lists
+            # Direct sum case: kernel and v are both lists (possibly nested)
             if not isinstance(v, list):
                 raise ValueError(
                     "Input must be a list of functions for direct sum"
                 )
-            return sum(
-                (k * vi).integrate(
-                    weight=self._weight,
-                    method=self.integration.method,
-                    n_points=self.integration.n_points
-                )
-                for k, vi in zip(self._kernel, v)
-            )
+            return sum(_eval(k, vi) for k, vi in zip(self._kernel, v))
         else:
             # Single space case
             if not isinstance(v, Function):

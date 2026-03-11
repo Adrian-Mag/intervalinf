@@ -11,6 +11,7 @@ The `intervalinf/demos/convex_analysis/` directory contains notebook-scale demon
 - `dli.ipynb`: deterministic linear inference workflow with dual master-cost optimization.
 - `bg_with_errors_minkowski.ipynb`: Backus-Gilbert admissible-region construction with data errors using Minkowski-sum support-function algebra.
 - `dli_vs_bg_polyhedral_comparison.ipynb`: side-by-side comparison notebook for DLI and BG in the 2D property-space setting with editable `N_d`, `N_p`, and common polyhedral resolution `N_theta`.
+- `realistic_dli.ipynb`: **realistic DLI mirror** of `old_demos/paper_demos/example_1.ipynb`. Uses the same direct-sum model space (`M_vp ⊕ M_vs ⊕ M_rho ⊕ M_σ₀ ⊕ M_σ₁`), the same `SensitivityKernelCatalog`/`SensitivityKernelProvider` operator construction pattern, per-component true-model random arrays, and a chi-squared deterministic data error set — reduced to N_d=5, N_p=2. Requires the external kernel catalog `kernels_modeplotaat_Adrian` (set `INTERVALINF_KERNEL_CATALOG_DIR` env var); raises `FileNotFoundError` if the catalog is missing rather than silently substituting synthetic proxies. A clearly-labeled `USE_SYNTHETIC_FALLBACK` flag (default `False`) can be set for offline exploration.
 
 The `intervalinf/demos/old_demos/paper_demos/` directory contains paper-oriented comparison notebooks and legacy prototypes.
 
@@ -40,7 +41,7 @@ pip install "intervalinf[all]"    # includes dev, docs, plotting
 pip install -e ".[dev]"           # editable development install
 ```
 
-**Last Updated:** 2026-03-10 (Added premature-discretization posterior-uncertainty paper demo and archived completed implementation plan)
+**Last Updated:** 2026-03-11 (Added realistic_dli.ipynb — direct-sum DLI mirror of example_1.ipynb with kernel-catalog gate; tightened chi-squared wording; added covariance singularity guard)
 
 ---
 
