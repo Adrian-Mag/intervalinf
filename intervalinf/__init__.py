@@ -25,6 +25,19 @@ from intervalinf.spaces import (
     PartitionedLebesgueSpace,
 )
 
+from intervalinf.operators import (
+    Laplacian,
+    InverseLaplacian,
+    Gradient,
+    SOLAOperator,
+)
+
+from intervalinf.providers import (
+    # Providers for known region constraints
+    NormalModesProvider,
+    BoxCarFunctionProvider,
+    NullFunctionProvider,
+)
 # Operators (depend on pygeoinf) - imported lazily
 # from intervalinf.operators import Laplacian, InverseLaplacian, Gradient
 
@@ -48,7 +61,12 @@ __all__ = [
     "KnownRegion",
     "PartitionedLebesgueSpace",
     # Operators (Level 3) - uncomment when operators module is ready
-    # "Laplacian",
-    # "InverseLaplacian",
-    # "Gradient",
+    "Laplacian",
+    "InverseLaplacian",
+    "Gradient",
+    "SOLAOperator",
+    # Providers (Level 4)
+    "NormalModesProvider",
+    "BoxCarFunctionProvider",
+    "NullFunctionProvider",
 ]
