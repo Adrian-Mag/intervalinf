@@ -41,7 +41,7 @@ pip install "intervalinf[all]"    # includes dev, docs, plotting
 pip install -e ".[dev]"           # editable development install
 ```
 
-**Last Updated:** 2026-04-03 (Lowering fast path for SOLA data-space operators: `SOLAOperator` now exposes `_build_kernel_matrix()`, `_build_quadrature_weights()`, `compute_gram_matrix_fast()`, and `compute_cross_gram_matrix(other)`; new `operators/reduced.py` adds `ReducedGramOperator.from_sola()` and `ReducedCrossGramOperator.from_sola_pair()` returning dense matrix-backed pygeoinf operators. On `benchmarks.baseline_benchmark.build_problem(N_d=10, N_p=5, seed=42)`, slow Gram median = 116.079 ms, fast cold = 0.168 ms, fast hot median = 0.075 ms, hot speedup = 1548.28x, max abs diff = 7.105e-15. Living reference updated for the new reduced-operator module and test coverage.)
+**Last Updated:** 2026-04-03 (Lowering fast path for SOLA data-space operators: `SOLAOperator` now exposes `_build_kernel_matrix()`, `_build_quadrature_weights()`, `compute_gram_matrix_fast()`, and `compute_cross_gram_matrix(other)`; `operators/reduced.py` now adds `compute_reduced_covariance(G, C, C_d=None)`, `ReducedGramOperator.from_sola()`, `ReducedCrossGramOperator.from_sola_pair()`, and `ReducedCovarianceOperator.from_sola_and_model()` for dense matrix-backed reduced data operators. On `benchmarks.baseline_benchmark.build_problem(N_d=10, N_p=5, seed=42)`, slow Gram median = 116.079 ms, fast cold = 0.168 ms, fast hot median = 0.075 ms, hot speedup = 1548.28x, max abs diff = 7.105e-15. Living reference updated for the reduced covariance path and expanded reduced-operator test coverage.)
 
 ---
 
@@ -74,7 +74,7 @@ intervalinf/
 │   ├── gradient.py       Gradient
 │   ├── bessel.py         BesselSobolev, BesselSobolevInverse
 │   ├── sola.py           SOLAOperator
-│   ├── reduced.py        ReducedGramOperator, ReducedCrossGramOperator
+│   ├── reduced.py        compute_reduced_covariance, ReducedGramOperator, ReducedCrossGramOperator, ReducedCovarianceOperator
 │   ├── radial.py         RadialLaplacian, InverseRadialLaplacian
 │   ├── spectral_helpers.py   Shared spectral algorithms
 │   └── _impl/
@@ -96,7 +96,7 @@ tests/
 ├── conftest.py          Shared fixtures (`unit_domain`, `pi_domain`, `simple_space`)
 ├── core/                Unit tests for domain, boundary conditions, config, Function, and hidden materialization caches
 ├── spaces/              Lebesgue, Sobolev, forms, and Sobolev-operator integration tests
-├── operators/           Spectral operator coverage, SOLAOperator regression/optimization suite, and reduced Gram/cross-Gram coverage
+├── operators/           Spectral operator coverage, SOLAOperator regression/optimization suite, and reduced Gram/cross-Gram/covariance coverage
 └── providers/           Standalone provider tests for domain-only provider usage
 ```
 
@@ -652,22 +652,25 @@ print(s["compact_support_fallbacks"], "fallbacks in", s["forward_calls"], "calls
 - Measured speedup over `_apply_kernels_generic` (same method, n_points=1000): about 2–5x for N_d 5–200 on the current benchmark.
 - Public API and semantics unchanged: operator remains "continuous operator evaluated numerically".
 
-**Reduced Gram / cross-Gram changes (2026-04-03):**
+**Reduced Gram / cross-Gram / covariance changes (2026-04-03):**
 - **`_build_kernel_matrix(xs=None)`** stacks all kernel evaluations into a dense array of shape `(N_d, n_points)`. When `xs` matches the operator's shared fixed-grid mesh it reuses `_kernel_eval_cache`; otherwise it evaluates kernels directly on the supplied common mesh without polluting the shared-mesh cache.
 - **`_build_quadrature_weights(xs=None, method=None)`** returns dense Simpson or trapezoid weights. For odd sample counts Simpson uses the classical $[1,4,2,\ldots,4,1]h/3$ pattern; for even sample counts it reproduces the same Cartwright correction that `scipy.integrate.simpson` applies, so reduced assembly matches the legacy pairwise quadrature path to machine precision.
 - **`compute_gram_matrix_fast()`** computes the dense reduced Gram matrix directly as `(K * w[np.newaxis, :]) @ K.T`, avoiding creation of intermediate `Function` objects and repeated `domain.integrate()` calls. When `cache_kernels=False` or the integration method is adaptive it falls back to `compute_gram_matrix()`.
-- **`compute_cross_gram_matrix(other)`** computes a dense cross-Gram matrix `self @ other.adjoint` on a common mesh. When both operators share the same fixed-grid configuration it reuses their shared meshes/caches; when mesh sizes differ it evaluates both kernel stacks on `np.linspace(a, b, max(n_points))`; adaptive-method pairs fall back to pairwise quadrature.
-- **`operators/reduced.py`** adds `ReducedGramOperator.from_sola(G)` and `ReducedCrossGramOperator.from_sola_pair(T, G)`, both returning dense matrix-backed `pygeoinf` operators on the data spaces.
+- **`compute_cross_gram_matrix(other)`** computes a dense cross-Gram matrix `self @ other.adjoint` on a common mesh. The fast path requires both operators to use the same fixed-grid method and `n_points`; mismatched or adaptive configurations fall back to pairwise quadrature.
+- **`compute_reduced_covariance(G, C, C_d=None)`** evaluates each kernel `g_j`, applies the model-side operator `C(g_j)`, samples the transformed kernels on `G`'s shared mesh, and assembles the dense reduced matrix `(K * w[np.newaxis, :]) @ CK.T + C_d`, i.e. `G C G* + C_d`, without reconstructing `Function` objects inside a pairwise inner-product loop.
+- **`operators/reduced.py`** adds `ReducedGramOperator.from_sola(G)`, `ReducedCrossGramOperator.from_sola_pair(T, G)`, and `ReducedCovarianceOperator.from_sola_and_model(G, C, C_d=None)`, all returning dense matrix-backed `pygeoinf` operators on the data spaces.
 - **Measured benchmark** on `benchmarks.baseline_benchmark.build_problem(N_d=10, N_p=5, seed=42)`: slow Gram median `116.079 ms`; fast cold `0.168 ms`; fast hot median `0.075 ms`; hot speedup `1548.28x`; max absolute difference `7.105e-15`.
 
-#### `operators/reduced.py` — `ReducedGramOperator`, `ReducedCrossGramOperator`
+#### `operators/reduced.py` — `compute_reduced_covariance`, `ReducedGramOperator`, `ReducedCrossGramOperator`, `ReducedCovarianceOperator`
 
-**Purpose:** Wraps reduced SOLA Gram and cross-Gram matrices as dense pygeoinf matrix operators.
+**Purpose:** Wraps reduced SOLA Gram, cross-Gram, and model-side covariance matrices as dense pygeoinf matrix operators.
 
 | Factory | Description |
 |---|---|
+| `compute_reduced_covariance(G, C, C_d=None)` | Returns the dense reduced matrix `G C G* + C_d` by reusing `G`'s fixed-grid kernel table and quadrature weights and evaluating the transformed kernel table `CK[j, :] = C(g_j)(x_s)` on the same mesh |
 | `ReducedGramOperator.from_sola(G)` | Returns a dense self-adjoint matrix-backed operator on `G.codomain` using `G.compute_gram_matrix_fast()` |
 | `ReducedCrossGramOperator.from_sola_pair(T, G)` | Returns a dense matrix-backed operator `G.codomain -> T.codomain` using `T.compute_cross_gram_matrix(G)` |
+| `ReducedCovarianceOperator.from_sola_and_model(G, C, C_d=None)` | Returns a dense self-adjoint matrix-backed operator on `G.codomain` using `compute_reduced_covariance(G, C, C_d)` |
 
 **Integration method support:**
 
