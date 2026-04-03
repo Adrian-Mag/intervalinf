@@ -150,11 +150,21 @@ class Function:
         self.support = self._check_support(support)
 
         # Function representation
-        self.coefficients = (
+        self._coefficients = (
             coefficients.copy() if coefficients is not None else None
         )
         self.evaluate_callable = evaluate_callable
         self._materializations: dict[RepresentationSpec, Materialization] = {}
+
+    @property
+    def coefficients(self) -> Optional[np.ndarray]:
+        """Basis expansion coefficients (or None)."""
+        return self._coefficients
+
+    @coefficients.setter
+    def coefficients(self, value: Optional[np.ndarray]) -> None:
+        self._coefficients = value
+        self._materializations.clear()
 
     # ================================================================
     # Space/Domain Properties

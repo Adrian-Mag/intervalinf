@@ -51,3 +51,9 @@ class Materialization:
     spec: RepresentationSpec
     grid: np.ndarray
     values: np.ndarray
+
+    def __post_init__(self) -> None:
+        self.grid = np.array(self.grid, dtype=float)
+        self.grid.flags.writeable = False
+        self.values = np.array(self.values, dtype=float)
+        self.values.flags.writeable = False
