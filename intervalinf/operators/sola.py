@@ -854,7 +854,12 @@ class SOLAOperator(LinearOperator):
         return cross_gram
 
     def compute_cross_gram_matrix(self, other: 'SOLAOperator') -> np.ndarray:
-        """Assemble the reduced cross-Gram matrix $T G^*$ on a common mesh."""
+        """Assemble the reduced cross-Gram matrix $T G^*$ on a common mesh.
+
+        Both operators must use the same fixed-grid integration method and
+        n_points for the fast path. If configurations differ, falls back to
+        the slow pairwise quadrature path to preserve semantic agreement.
+        """
         if not isinstance(other, SOLAOperator):
             raise TypeError(
                 "Cross-Gram assembly requires another SOLAOperator instance."
@@ -870,34 +875,15 @@ class SOLAOperator(LinearOperator):
         ):
             return self._compute_cross_gram_matrix_slow(other)
 
+        # Require matching configs for the fast path to preserve semantics
         if (
-            self.integration.method == other.integration.method
-            and self.integration.n_points == other.integration.n_points
+            self.integration.method != other.integration.method
+            or self.integration.n_points != other.integration.n_points
         ):
-            xs = self._get_or_build_mesh()
-        else:
-            domain = self._domain.function_domain
-            xs = np.linspace(
-                domain.a,
-                domain.b,
-                max(
-                    3,
-                    max(self.integration.n_points, other.integration.n_points),
-                ),
-            )
+            return self._compute_cross_gram_matrix_slow(other)
 
-        quadrature_method = self.integration.method
-        if self.integration.method != other.integration.method:
-            quadrature_method = (
-                "simpson"
-                if "simpson" in {
-                    self.integration.method,
-                    other.integration.method,
-                }
-                else "trapz"
-            )
-
-        weights = self._build_quadrature_weights(xs, method=quadrature_method)
+        xs = self._get_or_build_mesh()
+        weights = self._build_quadrature_weights(xs, method=self.integration.method)
         left_kernel_matrix = self._build_kernel_matrix(xs)
         right_kernel_matrix = other._build_kernel_matrix(xs)
         return (
