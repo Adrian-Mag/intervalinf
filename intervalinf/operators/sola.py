@@ -523,8 +523,9 @@ class SOLAOperator(LinearOperator):
                 continue
 
             if intersected_support is not None:
-                # Group by exact support key (no floating-point canonicalization
-                # beyond what _intersect_supports already produces).
+                # Group by exact support key
+                # (no floating-point canonicalization beyond what
+                # _intersect_supports already produces).
                 key = tuple(tuple(iv) for iv in intersected_support)
                 if key not in support_groups:
                     support_groups[key] = []
@@ -545,7 +546,10 @@ class SOLAOperator(LinearOperator):
             batched_indices = []
             batched_rows = []
             for i, kernel in full_domain_kernels:
-                if self._kernel_eval_cache is not None and i in self._kernel_eval_cache:
+                if (
+                    self._kernel_eval_cache is not None
+                    and i in self._kernel_eval_cache
+                ):
                     k_vals = self._kernel_eval_cache[i]
                 else:
                     k_vals = self._eval_on_mesh(kernel, xs)
@@ -568,8 +572,9 @@ class SOLAOperator(LinearOperator):
         # all products in a single batched pass.  Multi-interval supports are
         # handled by computing per-subinterval partial batch integrals and
         # summing (the concatenated mesh from _build_support_mesh cannot be
-        # used directly with a single simpson/trapz call for non-contiguous
-        # intervals because the gap between intervals would be integrated over).
+        # used directly with a single simpson/trapz call for
+        # non-contiguous intervals because the gap between intervals would be
+        # integrated over).
         for support_key, group in support_groups.items():
             support_list = [list(iv) for iv in support_key]
             alloc = self._compute_subinterval_alloc(support_list, n_points)
@@ -585,7 +590,11 @@ class SOLAOperator(LinearOperator):
                     part_i = np.asarray(_simpson(P_i, x=xs_i, axis=1))
                 else:  # 'trapz'
                     part_i = np.asarray(_trapz(P_i, x=xs_i, axis=1))
-                group_totals = part_i if group_totals is None else group_totals + part_i
+                group_totals = (
+                    part_i
+                    if group_totals is None
+                    else group_totals + part_i
+                )
             self._stats["compact_support_fallback_time_total_s"] += (
                 time.perf_counter() - t_fb
             )
@@ -709,6 +718,191 @@ class SOLAOperator(LinearOperator):
             List of kernels used for projection
         """
         return [self.get_kernel(i) for i in range(self.N_d)]
+
+    def _build_kernel_matrix(
+        self,
+        xs: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """Build the dense kernel table $K[i, :] = k_i(x_s)$."""
+        mesh = self._get_or_build_mesh() if xs is None else np.asarray(xs)
+        if mesh.ndim != 1:
+            raise ValueError("Kernel mesh must be one-dimensional.")
+
+        use_shared_cache = False
+        if self._kernel_eval_cache is not None:
+            shared_mesh = self._get_or_build_mesh()
+            use_shared_cache = np.array_equal(mesh, shared_mesh)
+
+        rows = []
+        for i in range(self.N_d):
+            if use_shared_cache and i in self._kernel_eval_cache:
+                k_vals = self._kernel_eval_cache[i]
+            else:
+                k_vals = np.asarray(
+                    self._eval_on_mesh(self.get_kernel(i), mesh)
+                )
+                if use_shared_cache and self._kernel_eval_cache is not None:
+                    self._kernel_eval_cache[i] = k_vals
+            rows.append(k_vals)
+
+        if not rows:
+            return np.empty((0, mesh.size))
+        return np.stack(rows, axis=0)
+
+    def _build_quadrature_weights(
+        self,
+        xs: Optional[np.ndarray] = None,
+        *,
+        method: Optional[str] = None,
+    ) -> np.ndarray:
+        """Build fixed-grid quadrature weights for the shared mesh.
+
+        For odd sample counts this returns the standard composite Simpson or
+        trapezoid weights. For even sample counts with Simpson's rule it uses
+        the same Cartwright end correction as ``scipy.integrate.simpson`` so
+        the reduced path matches the existing slow quadrature exactly.
+        """
+        mesh = self._get_or_build_mesh() if xs is None else np.asarray(xs)
+        if mesh.ndim != 1:
+            raise ValueError("Quadrature mesh must be one-dimensional.")
+        if mesh.size == 0:
+            return np.empty(0, dtype=float)
+
+        quadrature_method = (
+            self.integration.method if method is None else method
+        )
+        spacings = np.diff(mesh)
+        if quadrature_method == "trapz":
+            weights = np.empty(mesh.size, dtype=float)
+            weights[0] = 0.5 * spacings[0]
+            weights[-1] = 0.5 * spacings[-1]
+            if mesh.size > 2:
+                weights[1:-1] = 0.5 * (spacings[:-1] + spacings[1:])
+            return weights
+
+        if quadrature_method != "simpson":
+            raise ValueError(
+                "Quadrature weights are only defined for fixed-grid methods."
+            )
+
+        if not np.allclose(spacings, spacings[0], rtol=0.0, atol=1e-12):
+            from scipy.integrate import simpson as _simpson
+
+            return np.asarray(_simpson(np.eye(mesh.size), x=mesh, axis=1))
+
+        h = float(spacings[0])
+        weights = np.zeros(mesh.size, dtype=float)
+        if mesh.size % 2 == 1:
+            weights[0] = h / 3.0
+            weights[-1] = h / 3.0
+            if mesh.size > 2:
+                weights[1:-1:2] = 4.0 * h / 3.0
+                weights[2:-1:2] = 2.0 * h / 3.0
+            return weights
+
+        weights[0] = h / 3.0
+        if mesh.size > 3:
+            weights[1:mesh.size - 3:2] = 4.0 * h / 3.0
+            weights[2:mesh.size - 3:2] = 2.0 * h / 3.0
+        weights[-3] = 5.0 * h / 4.0
+        weights[-2] = h
+        weights[-1] = 5.0 * h / 12.0
+        return weights
+
+    def compute_gram_matrix_fast(self) -> np.ndarray:
+        """Assemble the Gram matrix from cached kernel values on one mesh."""
+        if not (self.cache_kernels and self.integration.is_fixed_grid):
+            return self.compute_gram_matrix()
+
+        xs = self._get_or_build_mesh()
+        weights = self._build_quadrature_weights(xs)
+        kernel_matrix = self._build_kernel_matrix(xs)
+        return (kernel_matrix * weights[np.newaxis, :]) @ kernel_matrix.T
+
+    def _compute_cross_gram_matrix_slow(
+        self,
+        other: 'SOLAOperator',
+    ) -> np.ndarray:
+        """Assemble a cross-Gram matrix via pairwise quadrature."""
+        cross_gram = np.zeros((self.N_d, other.N_d))
+        domain = self._domain.function_domain
+        method = self.integration.method
+        n_points = max(self.integration.n_points, other.integration.n_points)
+
+        for i in range(self.N_d):
+            kernel_i = self.get_kernel(i)
+            for j in range(other.N_d):
+                kernel_j = other.get_kernel(j)
+
+                intersected_support = Function._intersect_supports(
+                    kernel_i.support,
+                    kernel_j.support,
+                )
+                if intersected_support == []:
+                    continue
+
+                def product_callable(x, _ki=kernel_i, _kj=kernel_j):
+                    return _ki.evaluate(x) * _kj.evaluate(x)
+
+                cross_gram[i, j] = domain.integrate(
+                    product_callable,
+                    method=method,
+                    support=intersected_support,
+                    n_points=n_points,
+                )
+
+        return cross_gram
+
+    def compute_cross_gram_matrix(self, other: 'SOLAOperator') -> np.ndarray:
+        """Assemble the reduced cross-Gram matrix $T G^*$ on a common mesh."""
+        if not isinstance(other, SOLAOperator):
+            raise TypeError(
+                "Cross-Gram assembly requires another SOLAOperator instance."
+            )
+        if self._domain.function_domain != other._domain.function_domain:
+            raise ValueError(
+                "Cross-Gram assembly requires SOLA operators on the same "
+                "domain."
+            )
+        if not (
+            self.integration.is_fixed_grid
+            and other.integration.is_fixed_grid
+        ):
+            return self._compute_cross_gram_matrix_slow(other)
+
+        if (
+            self.integration.method == other.integration.method
+            and self.integration.n_points == other.integration.n_points
+        ):
+            xs = self._get_or_build_mesh()
+        else:
+            domain = self._domain.function_domain
+            xs = np.linspace(
+                domain.a,
+                domain.b,
+                max(
+                    3,
+                    max(self.integration.n_points, other.integration.n_points),
+                ),
+            )
+
+        quadrature_method = self.integration.method
+        if self.integration.method != other.integration.method:
+            quadrature_method = (
+                "simpson"
+                if "simpson" in {
+                    self.integration.method,
+                    other.integration.method,
+                }
+                else "trapz"
+            )
+
+        weights = self._build_quadrature_weights(xs, method=quadrature_method)
+        left_kernel_matrix = self._build_kernel_matrix(xs)
+        right_kernel_matrix = other._build_kernel_matrix(xs)
+        return (
+            left_kernel_matrix * weights[np.newaxis, :]
+        ) @ right_kernel_matrix.T
 
     def compute_gram_matrix(self) -> np.ndarray:
         """

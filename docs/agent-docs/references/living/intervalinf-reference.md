@@ -41,7 +41,7 @@ pip install "intervalinf[all]"    # includes dev, docs, plotting
 pip install -e ".[dev]"           # editable development install
 ```
 
-**Last Updated:** 2026-03-11 (Final narrow cleanup of realistic_dli.ipynb: Property Prior Bounds markdown updated from $\mathcal{B}$ ball notation to $\mathcal{E}$ ellipsoid notation; stale saved output containing "PHASE 1 SUMMARY / Model ball radius" replaced by re-running the Results cell — output now reads "RESULTS SUMMARY — Ellipsoid Prior"; no remaining ball-prior references anywhere in the notebook)
+**Last Updated:** 2026-04-03 (Lowering fast path for SOLA data-space operators: `SOLAOperator` now exposes `_build_kernel_matrix()`, `_build_quadrature_weights()`, `compute_gram_matrix_fast()`, and `compute_cross_gram_matrix(other)`; new `operators/reduced.py` adds `ReducedGramOperator.from_sola()` and `ReducedCrossGramOperator.from_sola_pair()` returning dense matrix-backed pygeoinf operators. On `benchmarks.baseline_benchmark.build_problem(N_d=10, N_p=5, seed=42)`, slow Gram median = 116.079 ms, fast cold = 0.168 ms, fast hot median = 0.075 ms, hot speedup = 1548.28x, max abs diff = 7.105e-15. Living reference updated for the new reduced-operator module and test coverage.)
 
 ---
 
@@ -74,6 +74,7 @@ intervalinf/
 │   ├── gradient.py       Gradient
 │   ├── bessel.py         BesselSobolev, BesselSobolevInverse
 │   ├── sola.py           SOLAOperator
+│   ├── reduced.py        ReducedGramOperator, ReducedCrossGramOperator
 │   ├── radial.py         RadialLaplacian, InverseRadialLaplacian
 │   ├── spectral_helpers.py   Shared spectral algorithms
 │   └── _impl/
@@ -95,7 +96,7 @@ tests/
 ├── conftest.py          Shared fixtures (`unit_domain`, `pi_domain`, `simple_space`)
 ├── core/                Unit tests for domain, boundary conditions, config, Function, and hidden materialization caches
 ├── spaces/              Lebesgue, Sobolev, forms, and Sobolev-operator integration tests
-├── operators/           Spectral operator coverage and the SOLAOperator regression/optimization suite
+├── operators/           Spectral operator coverage, SOLAOperator regression/optimization suite, and reduced Gram/cross-Gram coverage
 └── providers/           Standalone provider tests for domain-only provider usage
 ```
 
@@ -566,9 +567,13 @@ All spectral operators share the pattern: project $f$ onto eigenfunctions $\{\ph
 |---|---|
 | `get_kernel(i)` | Lazily retrieves $i$-th kernel with optional caching |
 | `get_kernels()` | Materialises and returns all kernels as a list |
+| `_build_kernel_matrix(xs=None)` | Builds the dense kernel table $K[i, :] = k_i(x_s)$ on the shared mesh; reuses `_kernel_eval_cache` only when `xs` matches the shared fixed-grid mesh |
+| `_build_quadrature_weights(xs=None, method=None)` | Builds fixed-grid quadrature weights for Simpson/trapz on the shared mesh; for even-sample Simpson it matches SciPy's Cartwright end correction exactly |
 | `_mapping(f)` | Applies $G$: returns `ndarray` of shape `(N,)` |
 | `_dual_mapping(yp)` | Returns `LinearFormKernel` reconstructed from data; adjoint is $G^*(y) = \sum_i y_i k_i(x)$ |
 | `compute_gram_matrix()` | Returns $N \times N$ matrix $G_{ij} = \int k_i(x)k_j(x)\,dx$ |
+| `compute_gram_matrix_fast()` | Builds $K$ and quadrature weights $w$ on a shared mesh and returns the reduced Gram matrix $(K \odot w)K^T$; falls back to `compute_gram_matrix()` when caching or fixed-grid integration is unavailable |
+| `compute_cross_gram_matrix(other)` | Builds a reduced cross-Gram matrix $C_{TG} = (L \odot w)K^T$ on a common mesh for a second `SOLAOperator`; falls back to pairwise quadrature for adaptive methods |
 | `clear_cache()` | Clears `_kernels_cache` AND `_kernel_eval_cache`; `_shared_mesh` is preserved |
 | `clear_mesh_cache()` | Clears only `_kernel_eval_cache`; `_shared_mesh` is preserved (no-op if `cache_kernels=False`) |
 | `get_cache_info()` | Returns dict with `caching_enabled`, `shared_mesh_built`; when enabled also `cached_functions`, `total_functions`, `cache_coverage`, `kernel_eval_cache_entries` |
@@ -646,6 +651,23 @@ print(s["compact_support_fallbacks"], "fallbacks in", s["forward_calls"], "calls
 - `IntervalDomain.integrate` fixed-grid methods (`'simpson'`, `'trapz'`) now preserve complex dtype in both vectorised and scalar-fallback evaluation paths.
 - Measured speedup over `_apply_kernels_generic` (same method, n_points=1000): about 2–5x for N_d 5–200 on the current benchmark.
 - Public API and semantics unchanged: operator remains "continuous operator evaluated numerically".
+
+**Reduced Gram / cross-Gram changes (2026-04-03):**
+- **`_build_kernel_matrix(xs=None)`** stacks all kernel evaluations into a dense array of shape `(N_d, n_points)`. When `xs` matches the operator's shared fixed-grid mesh it reuses `_kernel_eval_cache`; otherwise it evaluates kernels directly on the supplied common mesh without polluting the shared-mesh cache.
+- **`_build_quadrature_weights(xs=None, method=None)`** returns dense Simpson or trapezoid weights. For odd sample counts Simpson uses the classical $[1,4,2,\ldots,4,1]h/3$ pattern; for even sample counts it reproduces the same Cartwright correction that `scipy.integrate.simpson` applies, so reduced assembly matches the legacy pairwise quadrature path to machine precision.
+- **`compute_gram_matrix_fast()`** computes the dense reduced Gram matrix directly as `(K * w[np.newaxis, :]) @ K.T`, avoiding creation of intermediate `Function` objects and repeated `domain.integrate()` calls. When `cache_kernels=False` or the integration method is adaptive it falls back to `compute_gram_matrix()`.
+- **`compute_cross_gram_matrix(other)`** computes a dense cross-Gram matrix `self @ other.adjoint` on a common mesh. When both operators share the same fixed-grid configuration it reuses their shared meshes/caches; when mesh sizes differ it evaluates both kernel stacks on `np.linspace(a, b, max(n_points))`; adaptive-method pairs fall back to pairwise quadrature.
+- **`operators/reduced.py`** adds `ReducedGramOperator.from_sola(G)` and `ReducedCrossGramOperator.from_sola_pair(T, G)`, both returning dense matrix-backed `pygeoinf` operators on the data spaces.
+- **Measured benchmark** on `benchmarks.baseline_benchmark.build_problem(N_d=10, N_p=5, seed=42)`: slow Gram median `116.079 ms`; fast cold `0.168 ms`; fast hot median `0.075 ms`; hot speedup `1548.28x`; max absolute difference `7.105e-15`.
+
+#### `operators/reduced.py` — `ReducedGramOperator`, `ReducedCrossGramOperator`
+
+**Purpose:** Wraps reduced SOLA Gram and cross-Gram matrices as dense pygeoinf matrix operators.
+
+| Factory | Description |
+|---|---|
+| `ReducedGramOperator.from_sola(G)` | Returns a dense self-adjoint matrix-backed operator on `G.codomain` using `G.compute_gram_matrix_fast()` |
+| `ReducedCrossGramOperator.from_sola_pair(T, G)` | Returns a dense matrix-backed operator `G.codomain -> T.codomain` using `T.compute_cross_gram_matrix(G)` |
 
 **Integration method support:**
 
@@ -1020,7 +1042,8 @@ Number of points scales with `IntegrationConfig.n_points` (default 1000); `Lebes
 | `tests/spaces/test_sobolev.py` | `Sobolev`: init with `None` Laplacian (deferred placeholder), import guards, `SobolevSpaceDirectSum`, docstring existence |
 | `tests/spaces/test_forms.py` | `LinearFormKernel`: init with kernel/components/mapping, exactly-one constraint, parallel config, lazy `components`, direct sum evaluation |
 | `tests/operators/test_operators.py` | Import tests for all operator classes; `Laplacian` creation (spectral and FD methods); basic application tests; eigenvalue/eigenfunction retrieval |
-| `tests/operators/test_sola.py` | **SOLAOperator test suite (Phases 2–5).** 103 tests (405 total across suite). Phase 2 coverage: analytic forward-integral checks (constant/polynomial/trig kernels with analytic reference values); linearity; adjoint-consistency $\langle G(f), y\rangle_D = \langle f, G^*(y)\rangle_M$; provider-backed kernels (`SineFunctionProvider`, `BumpFunctionProvider`, `CosineFunctionProvider`); direct `Function`-list and callable-list kernels; `cache_kernels` behavior and `get_cache_info`/`clear_cache` accessors; integration-method coverage; compact-support locality; Gram-matrix symmetry; `for_direct_sum`. Phase 3–4: fixed-grid batched path; complex-valued kernels; adaptive vs fixed dispatch. Phase 5 (`TestPhase5ReuseAndCaching`): shared mesh unbuilt→built→same-object; `shared_mesh_built` in `get_cache_info`; eval cache `None` when disabled; cache populated/correct shape after call; cached == uncached bitwise; provider-backed caching; support-overlap kernel excluded from eval cache; `clear_cache` empties entries; `clear_mesh_cache` clears eval cache but preserves shared mesh; repeated N_REPS=50 workload smoke test. |
+| `tests/operators/test_sola.py` | **SOLAOperator test suite (Phases 2–5).** 103 tests. Phase 2 coverage: analytic forward-integral checks (constant/polynomial/trig kernels with analytic reference values); linearity; adjoint-consistency $\langle G(f), y\rangle_D = \langle f, G^*(y)\rangle_M$; provider-backed kernels (`SineFunctionProvider`, `BumpFunctionProvider`, `CosineFunctionProvider`); direct `Function`-list and callable-list kernels; `cache_kernels` behavior and `get_cache_info`/`clear_cache` accessors; integration-method coverage; compact-support locality; Gram-matrix symmetry; `for_direct_sum`. Phase 3–4: fixed-grid batched path; complex-valued kernels; adaptive vs fixed dispatch. Phase 5 (`TestPhase5ReuseAndCaching`): shared mesh unbuilt→built→same-object; `shared_mesh_built` in `get_cache_info`; eval cache `None` when disabled; cache populated/correct shape after call; cached == uncached bitwise; provider-backed caching; support-overlap kernel excluded from eval cache; `clear_cache` empties entries; `clear_mesh_cache` clears eval cache but preserves shared mesh; repeated N_REPS=50 workload smoke test. |
+| `tests/operators/test_reduced.py` | Reduced SOLA operator coverage (10 tests, full suite now 476 passed): fast Gram matches slow quadrature to `rtol=1e-8`; Gram symmetry and PSD; cross-Gram shape/value checks; reduced Gram and cross-Gram matrix-backed operator apply paths; Simpson/trapz weight normalization. |
 | `tests/providers/test_standalone_providers.py` | Trigonometric, FEM, smooth, wavelet, step, and data providers in standalone (domain-only) mode: `is_standalone`, `function_domain`, evaluation correctness for sine functions |
 
 **Testing patterns:**

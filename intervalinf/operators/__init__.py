@@ -6,6 +6,10 @@ from intervalinf.operators.laplacian import Laplacian, InverseLaplacian
 from intervalinf.operators.gradient import Gradient
 from intervalinf.operators.bessel import BesselSobolev, BesselSobolevInverse
 from intervalinf.operators.sola import SOLAOperator
+from intervalinf.operators.reduced import (
+    ReducedCrossGramOperator,
+    ReducedGramOperator,
+)
 from intervalinf.operators.radial import (
     RadialLaplacian,
     InverseRadialLaplacian,
@@ -39,6 +43,8 @@ __all__ = [
     'BesselSobolevInverse',
     # SOLA operator
     'SOLAOperator',
+    'ReducedGramOperator',
+    'ReducedCrossGramOperator',
     # Radial operators
     'RadialLaplacian',
     'InverseRadialLaplacian',
