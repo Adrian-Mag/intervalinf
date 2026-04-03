@@ -53,6 +53,7 @@ intervalinf/
 │   ├── domain.py         IntervalDomain
 │   ├── boundary.py       BoundaryConditions
 │   ├── functions.py      Function
+│   ├── materialization.py Hidden fixed-grid representation cache helpers
 │   └── config.py         IntegrationConfig, ParallelConfig, +hierarchical wrappers
 │
 ├── spaces/           LEVEL 2 – depends on pygeoinf base classes
@@ -92,7 +93,7 @@ intervalinf/
 tests/
 ├── __init__.py          Package marker for test discovery/imports
 ├── conftest.py          Shared fixtures (`unit_domain`, `pi_domain`, `simple_space`)
-├── core/                Unit tests for domain, boundary conditions, config, and Function
+├── core/                Unit tests for domain, boundary conditions, config, Function, and hidden materialization caches
 ├── spaces/              Lebesgue, Sobolev, forms, and Sobolev-operator integration tests
 ├── operators/           Spectral operator coverage and the SOLAOperator regression/optimization suite
 └── providers/           Standalone provider tests for domain-only provider usage
@@ -235,11 +236,29 @@ Supported `bc_type` values:
 | `detach(copy=True)` | `(bool) → Function` | Create domain-only copy (requires callable, not coefficients) |
 | `restrict(restricted_space)` | `→ Function` | Restrict to a subdomain; if compact support is set, it is intersected with the restricted domain |
 | `integrate(weight, method, n_points, vectorized)` | `→ float` | $\int f(x) w(x)\,dx$ |
+| `materialize(spec)` | `(RepresentationSpec) → Materialization` | Hidden helper: evaluates once on a fixed grid, caches the resulting `grid` and `values`, and reuses them on repeated requests |
+| `get_materialized(spec)` | `(RepresentationSpec) → Materialization \| None` | Returns an already cached materialization, if present |
+| `clear_materializations()` | `() → None` | Invalidates all cached materializations for this function |
 | Arithmetic: `+`, `-`, `*`, `/`, `__neg__`, `__abs__` | pointwise, returns new `Function` | Standard function arithmetic |
 
 **Note:** For `*`, if both operands have compact support and their supports are disjoint, the product is an identically-zero `Function` with `support=[]`.
 
+**Phase 2 materialization note:** `Function` now keeps a private `_materializations` dict keyed by `RepresentationSpec`. This does not change ordinary `f(x)` semantics; it only supports repeated fixed-grid evaluations such as `Lebesgue.inner_product` on Simpson/trapezoid meshes.
+
 **Mathematical meaning:** Represents an element of $L^2([a,b])$ or $H^s([a,b])$; evaluation at a point is the function value $f(x)$.
+
+---
+
+#### `core/materialization.py` — `RepresentationSpec`, `Materialization`
+
+**Purpose:** Defines the hidden cache key/value objects used to store concrete function values on reusable fixed grids.
+
+| Class | Constructor | Description |
+|---|---|---|
+| `RepresentationSpec` | `(kind, n_points, interval, method)` | Hashable representation key. Phase 2 supports `kind='fixed_grid'` with `method='uniform'`; `kind='spectral'` is reserved for later phases. |
+| `Materialization` | `(spec, grid, values)` | Stores the materialized grid coordinates and the function values evaluated on that grid. |
+
+**Phase 2 behavior:** `RepresentationSpec(interval=(a,b), n_points=N, method='uniform')` materializes on the domain's uniform mesh for `[a,b]`. Repeated calls reuse the same cached `Materialization` object.
 
 ---
 
@@ -296,7 +315,7 @@ All dataclasses support `.copy(**overrides)`.  `IntegrationConfig.method` accept
 
 | Method | Description |
 |---|---|
-| `inner_product(u, v)` | $\int u(x)v(x)w(x)\,dx$ via numerical integration |
+| `inner_product(u, v)` | $\int u(x)v(x)w(x)\,dx$ via numerical integration; for `method in {'simpson', 'trapz'}` it first materializes `u` and `v` on a shared uniform grid and integrates the cached arrays directly |
 | `distance(u, v)` | $\|u - v\|_{L^2}$ |
 | `to_dual(x)` | Returns `LinearFormKernel` with kernel $= x$ (Riesz map is identity in $L^2$) |
 | `from_dual(xp)` | Extracts kernel from `LinearFormKernel` |
@@ -305,13 +324,15 @@ All dataclasses support `.copy(**overrides)`.  `IntegrationConfig.method` accept
 | `zero` | Returns zero function with `support=[]` |
 | `multiply(a, x)` | Scalar × coefficient function; propagates `support=[]` when `a==0`, else preserves `x.support` |
 | `add(x, y)` | Coefficient addition; returns `Function` with `support = union(x.support, y.support)` |
-| `ax(a, x)` | In-place `x *= a`; sets `x.support = []` when `a == 0` |
-| `axpy(a, x, y)` | In-place `y += a*x`; updates `y.support = union(y.support, x.support)` only when `a != 0` (preserves `y.support` for the zero-update case) |
+| `ax(a, x)` | In-place `x *= a`; sets `x.support = []` when `a == 0` and clears any cached materializations on `x` |
+| `axpy(a, x, y)` | In-place `y += a*x`; updates `y.support = union(y.support, x.support)` only when `a != 0` (preserves `y.support` for the zero-update case) and clears any cached materializations on `y` |
 | `restrict(subspace, ...)` | Creates a `Lebesgue` on a subdomain |
 | `gram_matrix()` | Assembles and returns the full Gram matrix |
 | `inverse_gram_matrix()` | Returns $G^{-1}$ |
 
 **Basis types and corresponding eigenfunctions:**
+
+**Phase 2 inner-product fast path:** `_continuous_l2_inner_product` now builds a `RepresentationSpec(kind='fixed_grid', method='uniform', ...)` from the space domain and `integration_npoints`. For Simpson/trapezoid rules it obtains `u.materialize(spec)` and `v.materialize(spec)`, multiplies the cached arrays (plus optional weight samples), and integrates them with the same scipy quadrature rule. Adaptive/quad methods keep the original `(u * v).integrate(...)` path.
 
 | `basis` string | Eigenfunctions | BC type |
 |---|---|---|
@@ -927,6 +948,8 @@ Number of points scales with `IntegrationConfig.n_points` (default 1000); `Lebes
 | `IntervalDomain` | `core/domain.py` | 1D interval with meshing/integration | — |
 | `BoundaryConditions` | `core/boundary.py` | BC specification (D/N/R/P/mixed) | — |
 | `Function` | `core/functions.py` | Callable function on interval | Vector type for `HilbertSpace` |
+| `RepresentationSpec` | `core/materialization.py` | Hashable fixed-grid/spectral cache key | Hidden representation helper |
+| `Materialization` | `core/materialization.py` | Cached grid + function values | Hidden representation helper |
 | `IntegrationConfig` | `core/config.py` | Quadrature settings | — |
 | `ParallelConfig` | `core/config.py` | Parallelisation settings | — |
 | `Lebesgue` | `spaces/lebesgue.py` | $L^2([a,b])$ Hilbert space | Implements `HilbertSpace` |

@@ -42,6 +42,7 @@ from intervalinf.core.config import (
     ParallelConfig,
 )
 from intervalinf.core.functions import Function
+from intervalinf.core.materialization import RepresentationSpec
 from intervalinf.spaces.forms import LinearFormKernel
 from intervalinf.providers.base import BasisProvider
 
@@ -50,7 +51,6 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from intervalinf.core.domain import IntervalDomain
-    from intervalinf.providers.base import BasisProvider
 
 
 # =============================================================================
@@ -532,7 +532,11 @@ class Lebesgue(HilbertSpace):
         if inferred_support is not None and active_intervals:
             inferred_support = Function._union_supports([], active_intervals)
 
-        return Function(self, coefficients=coefficients.copy(), support=inferred_support)
+        return Function(
+            self,
+            coefficients=coefficients.copy(),
+            support=inferred_support,
+        )
 
     # ================================================================
     # Equality and properties
@@ -591,6 +595,7 @@ class Lebesgue(HilbertSpace):
             x.coefficients *= a
             if a == 0:
                 x.support = []
+            x.clear_materializations()
         else:
             raise ValueError(
                 "Cannot perform in-place operation on function "
@@ -605,6 +610,7 @@ class Lebesgue(HilbertSpace):
             y.coefficients += a * x.coefficients
             if a != 0:
                 y.support = Function._union_supports(y.support, x.support)
+            y.clear_materializations()
             return y
         else:
             return self.add(y, self.multiply(a, x))
@@ -895,12 +901,75 @@ class Lebesgue(HilbertSpace):
         v: 'Function'
     ) -> float:
         """Compute continuous L² inner product via integration."""
-        product = u * v
-        return product.integrate(
-            method=self.integration_method,
+        method = self.integration_method
+        if method not in {"simpson", "trapz"}:
+            product = u * v
+            return product.integrate(
+                method=method,
+                n_points=self.integration_npoints,
+                weight=self._weight
+            )
+
+        spec = RepresentationSpec(
+            kind="fixed_grid",
             n_points=self.integration_npoints,
-            weight=self._weight
+            interval=(self.function_domain.a, self.function_domain.b),
+            method="uniform",
         )
+        u_materialized = u.materialize(spec)
+        v_materialized = v.materialize(spec)
+        integrand = u_materialized.values * v_materialized.values
+
+        if self._weight is not None:
+            integrand = integrand * self._evaluate_array_callable(
+                self._weight,
+                u_materialized.grid,
+            )
+
+        return float(
+            self._integrate_fixed_grid(
+                integrand,
+                u_materialized.grid,
+                method,
+            )
+        )
+
+    @staticmethod
+    def _evaluate_array_callable(
+        callable_obj: Callable,
+        grid: np.ndarray,
+    ) -> np.ndarray:
+        """Evaluate a scalar or vectorized callable on a fixed grid."""
+        try:
+            values = np.asarray(callable_obj(grid), dtype=float)
+            if values.shape == grid.shape:
+                return values
+            if values.shape == ():
+                return np.full_like(grid, float(values), dtype=float)
+            if values.ndim == 1 and values.size == grid.size:
+                return values.reshape(grid.shape)
+            raise ValueError("callable returned incompatible shape")
+        except Exception:
+            return np.asarray([callable_obj(x) for x in grid], dtype=float)
+
+    @staticmethod
+    def _integrate_fixed_grid(
+        values: np.ndarray,
+        grid: np.ndarray,
+        method: str,
+    ) -> float:
+        """Integrate array values on a fixed grid with the configured rule."""
+        if method == "simpson":
+            from scipy.integrate import simpson
+
+            return float(simpson(values, x=grid))
+
+        try:
+            from scipy.integrate import trapezoid as trapz
+        except ImportError:
+            from scipy.integrate import trapz  # type: ignore
+
+        return float(trapz(values, x=grid))
 
     def _compute_metric(self):
         """Compute and cache the metric tensor (Gram matrix)."""
