@@ -13,6 +13,10 @@ The `intervalinf/demos/convex_analysis/` directory contains notebook-scale demon
 - `dli_vs_bg_polyhedral_comparison.ipynb`: side-by-side comparison notebook for DLI and BG in the 2D property-space setting with editable `N_d`, `N_p`, and common polyhedral resolution `N_theta`.
 - `realistic_dli.ipynb`: **realistic DLI mirror** of `old_demos/paper_demos/example_1.ipynb`. Uses the same direct-sum model structure (`M_vp ⊕ M_vs ⊕ M_rho ⊕ M_σ₀ ⊕ M_σ₁`), the same `SensitivityKernelCatalog`/`SensitivityKernelProvider` operator construction pattern, and a chi-squared deterministic data error set — reduced to N_d=5, N_p=2. The functional model blocks are now intentionally **basis-free** (`dim=0`, `basis=None`) and the prior is built **operator-theoretically**, not by assembling dense covariance matrices: `BesselSobolevInverse` supplies covariance blocks, `BesselSobolev` supplies the shape/operator-inverse blocks, and nested `BlockDiagonalLinearOperator` objects assemble the full model prior. The model prior is a strict 0.95 ellipsoid $\mathcal{E} = \{m : \langle A m,m\rangle_\mathcal{M} \leq \chi^2_{d_\mathrm{eff}}(0.95)\}$ represented through `EllipsoidSupportFunction`, with effective dof computed by KL truncation (tol=1e-4, helper count N=10, final dof=42). No `.matrix(...)` discretization is used in the notebook’s Phase 3 prior construction. Requires the external kernel catalog `kernels_modeplotaat_Adrian` (set `INTERVALINF_KERNEL_CATALOG_DIR` env var); raises `FileNotFoundError` if the catalog is missing rather than silently substituting synthetic proxies. A clearly-labeled `USE_SYNTHETIC_FALLBACK` flag (default `False`) can be set for offline exploration.
 
+The `intervalinf/demos/sola-base_demo/` directory now contains a cross-package reconciliation notebook.
+
+- `sola_demo.ipynb`: continuous unimodular SOLA demo plus a 20-cell physical-boxcar discretization, a mass-weighted discrete model space built with `MassWeightedHilbertSpace`, and a full export/run/compare path against `sola-base`. The notebook writes `G`, `d`, `dstd`, `V`, and `T/T_k` in `sola-base` format, runs `sola_preproc.py`, `sola_lsqr.py`, `sola_postproc.py`, and `sola_ak.py`, then compares `sola-base` outputs against the notebook discrete solution in the matching swapped/normalized data coordinates. Current round-trip agreement is at the level of `max |Δm| ≈ 3.8e-2`, `max |Δσ_m| ≈ 1.0e-2`, `max |Δx| ≈ 5.7e-3`, and `max |Δ(A\,V)| ≈ 3.1e-2`.
+
 The `intervalinf/demos/old_demos/paper_demos/` directory contains paper-oriented comparison notebooks and legacy prototypes.
 
 - `example_3.ipynb`: older posterior-uncertainty demo retained as a legacy reference point.
@@ -41,7 +45,7 @@ pip install "intervalinf[all]"    # includes dev, docs, plotting
 pip install -e ".[dev]"           # editable development install
 ```
 
-**Last Updated:** 2026-04-03 (Lowering fast path for SOLA data-space operators: `SOLAOperator` now exposes `_build_kernel_matrix()`, `_build_quadrature_weights()`, `compute_gram_matrix_fast()`, and `compute_cross_gram_matrix(other)`; `operators/reduced.py` now adds `compute_reduced_covariance(G, C, C_d=None)`, `ReducedGramOperator.from_sola()`, `ReducedCrossGramOperator.from_sola_pair()`, and `ReducedCovarianceOperator.from_sola_and_model()` for dense matrix-backed reduced data operators. On `benchmarks.baseline_benchmark.build_problem(N_d=10, N_p=5, seed=42)`, slow Gram median = 116.079 ms, fast cold = 0.168 ms, fast hot median = 0.075 ms, hot speedup = 1548.28x, max abs diff = 7.105e-15. Living reference updated for the reduced covariance path and expanded reduced-operator test coverage.)
+**Last Updated:** 2026-04-13 (Added the `demos/sola-base_demo/sola_demo.ipynb` round-trip notebook linking `intervalinf`/`pygeoinf` discrete SOLA operators to `sola-base` file export and solver comparison; comparison now uses the matching swapped/normalized `sola-base` data coordinates and reports residuals on property means, uncertainties, weights, and integrated averaging kernels. The prior 2026-04-03 reduced-operator note still applies: `SOLAOperator` exposes `_build_kernel_matrix()`, `_build_quadrature_weights()`, `compute_gram_matrix_fast()`, and `compute_cross_gram_matrix(other)`; `operators/reduced.py` adds `compute_reduced_covariance(G, C, C_d=None)`, `ReducedGramOperator.from_sola()`, `ReducedCrossGramOperator.from_sola_pair()`, and `ReducedCovarianceOperator.from_sola_and_model()` for dense matrix-backed reduced data operators. On `benchmarks.baseline_benchmark.build_problem(N_d=10, N_p=5, seed=42)`, slow Gram median = 116.079 ms, fast cold = 0.168 ms, fast hot median = 0.075 ms, hot speedup = 1548.28x, max abs diff = 7.105e-15.)
 
 ---
 
@@ -470,7 +474,7 @@ All spectral operators share the pattern: project $f$ onto eigenfunctions $\{\ph
 
 | Method | Description |
 |---|---|
-| `get_eigenvalue(i)` | $\alpha \lambda_i$ from `LaplacianSpectrumProvider` |
+| `get_eigenvalue(i)` | $\lambda_i$ directly from `LaplacianSpectrumProvider` (provider already encodes $\alpha$) |
 | `get_eigenfunction(i)` | $i$-th eigenfunction from spectrum provider |
 | `restrict(space, new_bcs)` | Creates restricted `Laplacian` on subdomain |
 

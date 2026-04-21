@@ -29,7 +29,7 @@ class BoxCarFunctionProvider(
     Box-car functions are piecewise constant functions that are zero outside
     a finite interval and have a constant value inside:
 
-        f(x) = height for x ∈ [center - width/2, center + width/2]
+        f(x) = height for x ∈ [center - width/2, center + width/2)
         f(x) = 0 elsewhere
 
     By default, functions are normalized so that their integral equals 1.
@@ -90,10 +90,14 @@ class BoxCarFunctionProvider(
         else:
             actual_height = height
 
+        domain_right = self.domain.b
+
         def boxcar_func(x):
             x_arr = np.asarray(x)
             result = np.zeros_like(x_arr, dtype=float)
-            mask = (x_arr >= a_support) & (x_arr <= b_support)
+            mask = (x_arr >= a_support) & (x_arr < b_support)
+            if np.isclose(b_support, domain_right):
+                mask = mask | np.isclose(x_arr, domain_right)
             result[mask] = actual_height
             return result
 

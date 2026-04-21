@@ -901,9 +901,9 @@ class Lebesgue(HilbertSpace):
         v: 'Function'
     ) -> float:
         """Compute continuous L² inner product via integration."""
+        product = u * v
         method = self.integration_method
-        if method not in {"simpson", "trapz"}:
-            product = u * v
+        if method not in {"simpson", "trapz"} or product.has_compact_support:
             return product.integrate(
                 method=method,
                 n_points=self.integration_npoints,

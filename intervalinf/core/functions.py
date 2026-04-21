@@ -681,8 +681,17 @@ class Function:
     @staticmethod
     def _intersect_supports(support1, support2):
         """Compute intersection of two support specifications."""
-        if support1 is None or support2 is None:
+        # `None` denotes global support. Intersecting global support with a
+        # compact support should preserve the compact support; only the
+        # intersection of two global supports remains global.
+        if support1 == [] or support2 == []:
+            return []
+        if support1 is None and support2 is None:
             return None
+        if support1 is None:
+            return list(support2)
+        if support2 is None:
+            return list(support1)
 
         intersections = []
         for a1, b1 in support1:

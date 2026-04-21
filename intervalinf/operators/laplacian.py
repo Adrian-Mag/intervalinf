@@ -101,7 +101,7 @@ class Laplacian(SpectralOperator):
 
     def get_eigenvalue(self, index: int) -> float:
         """Get the eigenvalue at a specific index."""
-        return self._alpha * self._spectrum_provider.get_eigenvalue(index)
+        return self._spectrum_provider.get_eigenvalue(index)
 
     def get_eigenfunction(self, index: int) -> Function:
         """Get the eigenfunction at a specific index."""
@@ -370,9 +370,9 @@ class InverseLaplacian(SpectralOperator):
 
         self._log = logging.getLogger(__name__)
         self._log.info(
-            "InverseLaplacian initialized: dofs=%s, fem_type=%s, alpha=%s",
+            "InverseLaplacian initialized: method=%s, dofs=%s, alpha=%s",
+            self._method,
             self._dofs,
-            self._fem_type,
             self._alpha,
         )
 
