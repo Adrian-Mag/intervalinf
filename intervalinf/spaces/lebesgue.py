@@ -435,7 +435,14 @@ class Lebesgue(HilbertSpace):
 
     def from_dual(self, xp: LinearForm) -> 'Function':
         """
-        Map a dual element back to a function.
+        Map a dual element back to a function via the Riesz isomorphism.
+
+        For a ``LinearFormKernel`` the kernel function is returned directly
+        (it already IS the L² Riesz representative).
+
+        For a generic ``LinearForm`` with component vector ``c``, the Riesz
+        representative satisfies ``⟨f, g⟩ = φ(g)`` for all ``g``, i.e.
+        ``f_comp^T G g_comp = c^T g_comp``, giving ``f_comp = G⁻¹ c``.
 
         Args:
             xp: A LinearForm (typically LinearFormKernel).
@@ -450,8 +457,11 @@ class Lebesgue(HilbertSpace):
             else:
                 raise ValueError("LinearFormKernel has no kernel")
         else:
-            # For generic LinearForm, use components
-            return self.from_components(xp.components)
+            # Generic LinearForm: components c represent φ(φᵢ) = cᵢ.
+            # Riesz representative has components G⁻¹ c.
+            return self.from_components(
+                np.linalg.solve(self.metric, xp.components)
+            )
 
     # ================================================================
     # Coefficient transformations

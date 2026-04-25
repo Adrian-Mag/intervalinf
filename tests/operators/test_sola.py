@@ -1889,7 +1889,7 @@ class TestPhase2Instrumentation:
         expected_keys = {
             "forward_calls", "disjoint_skips", "compact_support_fallbacks",
             "batched_fixed_grid_kernels", "forward_time_total_s",
-            "compact_support_fallback_time_total_s",
+            "compact_support_fallback_time_total_s", "fast_path_hits",
         }
         assert expected_keys == set(s.keys()), f"Unexpected keys: {set(s.keys())}"
 
@@ -3093,5 +3093,161 @@ class TestLazyFullDomainEvaluation:
         assert all(0.2 <= x <= 0.8 for x in call_xs), (
             f"f was evaluated outside kernel support [0.2, 0.8]: "
             f"min={min(call_xs):.6f}, max={max(call_xs):.6f}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Phase N: _reconstruct_function fast path
+# ---------------------------------------------------------------------------
+
+class TestReconstructFunctionFastPath:
+    """Fast-path in _reconstruct_function: when kernel eval cache is fully
+    populated, G*(z).evaluate(shared_mesh) uses K_mat.T @ z instead of
+    looping over M kernel.evaluate calls.
+
+    Fast path is tracked via stats['fast_path_hits'].
+    """
+
+    @pytest.fixture
+    def cached_sola(self):
+        """SOLAOperator with cache_kernels=True, sine kernels, pre-warmed."""
+        domain = IntervalDomain(0.0, 1.0)
+        M = Lebesgue(0, domain, basis=None,
+                     integration_config=None)
+        N_d = 8
+        D = EuclideanSpace(N_d)
+        # Simple analytic kernels: k_i(x) = sin((i+1) * pi * x)
+        kernels = [
+            Function(domain,
+                     evaluate_callable=(lambda n: (lambda x: np.sin((n + 1) * np.pi * x)))(i))
+            for i in range(N_d)
+        ]
+        G = SOLAOperator(M, D, kernels=kernels, cache_kernels=True,
+                         integration_config=IntegrationConfig("simpson", 1000))
+        # Warm the kernel eval cache with one forward pass
+        m = Function(domain, evaluate_callable=lambda x: np.sin(np.pi * x))
+        _ = G(m)
+        return G, M, D, N_d
+
+    # ------------------------------------------------------------------
+    # 1. stats['fast_path_hits'] exists and is incremented by G(G*(z))
+    # ------------------------------------------------------------------
+
+    def test_fast_path_stats_key_exists(self, cached_sola):
+        """stats dict must contain 'fast_path_hits' key (added by implementation)."""
+        G, M, D, N_d = cached_sola
+        assert 'fast_path_hits' in G.stats, (
+            "'fast_path_hits' key missing from SOLAOperator.stats — "
+            "fast path not yet implemented"
+        )
+
+    def test_fast_path_increments_stats(self, cached_sola):
+        """G(G*(z)) must increment stats['fast_path_hits'] exactly once."""
+        G, M, D, N_d = cached_sola
+        G.reset_stats()
+        z = np.ones(N_d) / N_d
+        u_adj = G.adjoint(z)
+        _ = G(u_adj)
+        hits = G.stats.get('fast_path_hits', 0)
+        assert hits >= 1, (
+            f"Expected fast_path_hits >= 1 after G(G*(z)), got {hits}. "
+            "Fast path not taken — kernel loop is used instead."
+        )
+
+    def test_fast_path_not_hit_without_cache(self):
+        """Without cache_kernels=True, fast path must NOT be taken."""
+        domain = IntervalDomain(0.0, 1.0)
+        M = Lebesgue(0, domain, basis=None, integration_config=None)
+        N_d = 4
+        D = EuclideanSpace(N_d)
+        kernels = [
+            Function(domain,
+                     evaluate_callable=(lambda n: (lambda x: np.sin((n + 1) * np.pi * x)))(i))
+            for i in range(N_d)
+        ]
+        G = SOLAOperator(M, D, kernels=kernels, cache_kernels=False,
+                         integration_config=IntegrationConfig("simpson", 500))
+        m = Function(domain, evaluate_callable=lambda x: np.sin(np.pi * x))
+        _ = G(m)
+        G.reset_stats()
+        z = np.ones(N_d) / N_d
+        _ = G(G.adjoint(z))
+        assert G.stats.get('fast_path_hits', 0) == 0, (
+            "Fast path must not be taken when cache_kernels=False"
+        )
+
+    # ------------------------------------------------------------------
+    # 2. Correctness: G(G*(z)) == P_mat @ z
+    # ------------------------------------------------------------------
+
+    def test_fast_path_correctness_direct(self, cached_sola):
+        """G(G*(z)) equals the Gram matrix times z."""
+        G, M, D, N_d = cached_sola
+        P_mat = (G @ G.adjoint).matrix(dense=True)
+        np.random.seed(7)
+        z = np.random.randn(N_d)
+        expected = P_mat @ z
+        result = G(G.adjoint(z))
+        assert_allclose(result, expected, rtol=1e-5,
+                        err_msg="G(G*(z)) != P_mat @ z (fast path breaks correctness)")
+
+    def test_fast_path_correctness_scaled(self, cached_sola):
+        """G(a * G*(z)) == a * P_mat @ z for scalar a."""
+        G, M, D, N_d = cached_sola
+        P_mat = (G @ G.adjoint).matrix(dense=True)
+        np.random.seed(8)
+        z = np.random.randn(N_d)
+        a = 3.14
+        u = M.multiply(a, G.adjoint(z))
+        result = G(u)
+        assert_allclose(result, a * (P_mat @ z), rtol=1e-5,
+                        err_msg="G(a * G*(z)) != a * P_mat @ z")
+
+    def test_fast_path_correctness_sum(self, cached_sola):
+        """G(G*(z1) + G*(z2)) == P_mat @ (z1 + z2)."""
+        G, M, D, N_d = cached_sola
+        P_mat = (G @ G.adjoint).matrix(dense=True)
+        np.random.seed(9)
+        z1 = np.random.randn(N_d)
+        z2 = np.random.randn(N_d)
+        u = M.add(G.adjoint(z1), G.adjoint(z2))
+        result = G(u)
+        assert_allclose(result, P_mat @ (z1 + z2), rtol=1e-5,
+                        err_msg="G(G*(z1) + G*(z2)) != P_mat @ (z1 + z2)")
+
+    # ------------------------------------------------------------------
+    # 3. Correctness: arbitrary mesh falls back without corrupting result
+    # ------------------------------------------------------------------
+
+    def test_fast_path_fallback_arbitrary_mesh(self, cached_sola):
+        """Evaluating G*(z) on a mesh that is NOT the shared mesh still works."""
+        G, M, D, N_d = cached_sola
+        np.random.seed(10)
+        z = np.random.randn(N_d)
+        u_adj = G.adjoint(z)
+        # Use a different mesh (different object, different size)
+        xs_other = np.linspace(0.0, 1.0, 333)
+        vals = u_adj.evaluate(xs_other, check_domain=False)
+        # Verify manually: should equal sum_i z_i * K_i(xs)
+        kernels = G.get_kernels()
+        expected = sum(z[i] * kernels[i].evaluate(xs_other, check_domain=False)
+                       for i in range(N_d))
+        assert_allclose(vals, expected, rtol=1e-10,
+                        err_msg="Fallback path (non-shared mesh) returns wrong values")
+
+    # ------------------------------------------------------------------
+    # 4. Fast path also taken inside G(G*(z)) composition chain
+    # ------------------------------------------------------------------
+
+    def test_fast_path_stats_via_G_call(self, cached_sola):
+        """stats['fast_path_hits'] increments when G is called on G*(z),
+        because _apply_kernels_fixed_grid evaluates G*(z) on the shared mesh."""
+        G, M, D, N_d = cached_sola
+        G.reset_stats()
+        z = np.random.default_rng(11).standard_normal(N_d)
+        _ = G(G.adjoint(z))
+        assert G.stats.get('fast_path_hits', 0) >= 1, (
+            "Fast path not taken inside G(G*(z)) — "
+            "shared mesh id check may be broken"
         )
 
