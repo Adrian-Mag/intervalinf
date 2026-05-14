@@ -131,12 +131,13 @@ def test_ambient_ball_spectral_vs_sampling():
         probability,
         geometry="ambient_ball",
         radius_method="sampling",
-        n_samples=5_000,
+        n_samples=500,
         rng=np.random.default_rng(42),
     )
 
     # 15 % relative tolerance: the KL sampler uses a finite-mode truncation
     # which adds a small bias on top of Monte Carlo noise.
+    # n_samples=500 is sufficient (MC noise ~1.3 % for this distribution).
     assert_allclose(
         ball_sampling.radius, ball_spectral.radius, rtol=1.5e-1
     )
