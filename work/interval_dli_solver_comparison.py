@@ -7,11 +7,7 @@ methods on the 1-D bump-target inference problem from
 
     ProximalBundle      — proximal bundle method (OSQP QP master)
     SmoothedLBFGS       — Moreau-Yosida smoothing + L-BFGS-B continuation
-    PrimalKKTBasisFree  — Woodbury KKT in abstract space (no model-space matrix)
-
-Note: ``PrimalKKTSolver`` (basis-expanded) is omitted because the Lebesgue
-model space is infinite-dimensional — forming the N_model x N_model Gram
-matrix is not well-defined without a discretisation.
+    PrimalKKT           — Woodbury KKT in abstract space (no model-space matrix)
 
 Note: ``ChambollePockSolver`` is also omitted: its step-size estimation uses
 power iteration which calls ``model_space.from_components()``, requiring a
@@ -78,7 +74,7 @@ from pygeoinf.convex_analysis import BallSupportFunction
 from pygeoinf.convex_optimisation import (
     ProximalBundleMethod,
     SmoothedLBFGSSolver,
-    PrimalKKTSolverBasisFree,
+    PrimalKKTSolver,
     best_available_qp_solver,
     solve_support_values,
 )
@@ -87,25 +83,24 @@ from pygeoinf.convex_optimisation import (
 # Configuration
 # ---------------------------------------------------------------------------
 
-_DEFAULT_DATA_DIMS = [10, 20, 50, 100]
+_DEFAULT_DATA_DIMS = [10, 20, 50, 100, 200, 500, 1000]
 DATA_DIMS: list[int] = [
     int(x) for x in os.environ.get("DLI_DATA_DIMS", ",".join(map(str, _DEFAULT_DATA_DIMS))).split(",")
 ]
 
 # ChambollePock omitted: requires model_space.from_components() in power-iteration
 # step-size estimation, which fails for infinite-dimensional Lebesgue space.
-# PrimalKKTSolver omitted: needs finite-dimensional Gram matrix.
-SOLVER_NAMES = ["ProximalBundle", "SmoothedLBFGS", "PrimalKKTBasisFree"]
+SOLVER_NAMES = ["ProximalBundle", "SmoothedLBFGS", "PrimalKKT"]
 
 SOLVER_COLORS = {
     "ProximalBundle":    "tab:blue",
     "SmoothedLBFGS":     "tab:green",
-    "PrimalKKTBasisFree": "tab:orange",
+    "PrimalKKT":         "tab:orange",
 }
 SOLVER_MARKERS = {
     "ProximalBundle":    "o",
     "SmoothedLBFGS":     "^",
-    "PrimalKKTBasisFree": "s",
+    "PrimalKKT":         "s",
 }
 
 # Problem constants (match dli.ipynb)
@@ -272,28 +267,60 @@ def solve_with_smoothed_lbfgs(cost, basis_dirs, neg_basis, D):
     return np.asarray(upper_vals), -np.asarray(lower_neg)
 
 
-def solve_with_primal_kkt_basis_free(
+def solve_with_primal_kkt(
     basis_dirs, neg_basis, M, T,
     model_prior_support, data_error_support, G, d_tilde,
+    n_jobs: int = 1,
 ):
-    """Run PrimalKKTSolverBasisFree — model space never discretised."""
-    kkt_solver = PrimalKKTSolverBasisFree(
-        model_prior_support,
-        data_error_support,
-        G,
-        np.asarray(d_tilde, dtype=float),
-    )
+    """Run PrimalKKTSolver — model space never discretised.
 
-    def _solve_directions(qs):
-        vals = []
-        for q in qs:
-            c = T.adjoint(q)
-            result = kkt_solver.solve(c)
-            vals.append(M.inner_product(c, result.m))
-        return np.array(vals)
+    Args:
+        n_jobs: Number of parallel jobs for direction solves (default 1).
+            >1 uses joblib; each direction gets its own solver instance.
+    """
+    d_obs = np.asarray(d_tilde, dtype=float)
 
-    upper_vals = _solve_directions(basis_dirs)
-    lower_neg  = _solve_directions(neg_basis)
+    def _make_solver():
+        return PrimalKKTSolver(
+            model_prior_support,
+            data_error_support,
+            G,
+            d_obs,
+        )
+
+    def _solve_one_fresh(q):
+        """Create a fresh solver per call — safe for parallel workers."""
+        c = T.adjoint(q)
+        result = _make_solver().solve(c)
+        return float(M.inner_product(c, result.m))
+
+    def _solve_one_reuse(solver, q):
+        """Reuse a single solver — for sequential execution."""
+        c = T.adjoint(q)
+        result = solver.solve(c)
+        return float(M.inner_product(c, result.m))
+
+    _n_jobs = n_jobs
+    if _n_jobs > 1:
+        try:
+            from joblib import Parallel, delayed
+            all_qs = list(basis_dirs) + list(neg_basis)
+            vals = Parallel(n_jobs=_n_jobs)(
+                delayed(_solve_one_fresh)(q) for q in all_qs
+            )
+            n = len(basis_dirs)
+            upper_vals = np.array(vals[:n])
+            lower_neg  = np.array(vals[n:])
+        except ImportError:
+            print("  Warning: joblib not available — falling back to sequential.")
+            sys.stdout.flush()
+            _n_jobs = 1
+
+    if _n_jobs <= 1:
+        solver = _make_solver()
+        upper_vals = np.array([_solve_one_reuse(solver, q) for q in basis_dirs])
+        lower_neg  = np.array([_solve_one_reuse(solver, q) for q in neg_basis])
+
     return np.asarray(upper_vals), -np.asarray(lower_neg)
 
 
@@ -322,10 +349,11 @@ def run_one(
         upper, lower = solve_with_proximal_bundle(cost, basis_dirs, neg_basis, D)
     elif solver_name == "SmoothedLBFGS":
         upper, lower = solve_with_smoothed_lbfgs(cost, basis_dirs, neg_basis, D)
-    elif solver_name == "PrimalKKTBasisFree":
-        upper, lower = solve_with_primal_kkt_basis_free(
+    elif solver_name == "PrimalKKT":
+        upper, lower = solve_with_primal_kkt(
             basis_dirs, neg_basis, M, T,
             model_prior_support, data_error_support, G, d_tilde,
+            n_jobs=SUPPORT_N_JOBS,
         )
     else:
         raise ValueError(f"Unknown solver: {solver_name}")
@@ -353,8 +381,32 @@ def run_one_repeated(
     model_prior_support, data_error_support,
     *,
     n_repeats: int,
+    progress_callback=None,
 ) -> dict[str, Any]:
     """Run repeated timing for one (solver, N_d) and aggregate statistics."""
+
+    def _aggregate(per_run_local: list[dict[str, Any]]) -> dict[str, Any]:
+        times  = np.array([r["solve_time"] for r in per_run_local], dtype=float)
+        uppers = np.array([r["upper"] for r in per_run_local], dtype=float)
+        lowers = np.array([r["lower"] for r in per_run_local], dtype=float)
+        n_done = len(per_run_local)
+
+        return {
+            "solver":          solver_name,
+            "data_dim":        int(D.dim),
+            "n_repeats":       int(n_done),
+            "solve_time_mean": float(np.mean(times)),
+            "solve_time_std":  float(np.std(times, ddof=1)) if n_done > 1 else 0.0,
+            "solve_times":     times,
+            "upper":           np.mean(uppers, axis=0),
+            "lower":           np.mean(lowers, axis=0),
+            "upper_std":       np.std(uppers, axis=0, ddof=1) if n_done > 1 else np.zeros_like(uppers[0]),
+            "lower_std":       np.std(lowers, axis=0, ddof=1) if n_done > 1 else np.zeros_like(lowers[0]),
+            "true_values":     per_run_local[0]["true_values"],
+            "prior_lower":     per_run_local[0]["prior_lower"],
+            "prior_upper":     per_run_local[0]["prior_upper"],
+        }
+
     per_run: list[dict[str, Any]] = []
     for rep in range(n_repeats):
         print(f"      repeat {rep + 1}/{n_repeats}")
@@ -363,26 +415,10 @@ def run_one_repeated(
             run_one(solver_name, M, D, P, G, T,
                     m_bar, d_tilde, model_prior_support, data_error_support)
         )
+        if progress_callback is not None:
+            progress_callback(_aggregate(per_run), rep + 1, n_repeats)
 
-    times  = np.array([r["solve_time"] for r in per_run], dtype=float)
-    uppers = np.array([r["upper"] for r in per_run], dtype=float)
-    lowers = np.array([r["lower"] for r in per_run], dtype=float)
-
-    return {
-        "solver":          solver_name,
-        "data_dim":        int(D.dim),
-        "n_repeats":       int(n_repeats),
-        "solve_time_mean": float(np.mean(times)),
-        "solve_time_std":  float(np.std(times, ddof=1)) if n_repeats > 1 else 0.0,
-        "solve_times":     times,
-        "upper":           np.mean(uppers, axis=0),
-        "lower":           np.mean(lowers, axis=0),
-        "upper_std":       np.std(uppers, axis=0, ddof=1) if n_repeats > 1 else np.zeros_like(uppers[0]),
-        "lower_std":       np.std(lowers, axis=0, ddof=1) if n_repeats > 1 else np.zeros_like(lowers[0]),
-        "true_values":     per_run[0]["true_values"],
-        "prior_lower":     per_run[0]["prior_lower"],
-        "prior_upper":     per_run[0]["prior_upper"],
-    }
+    return _aggregate(per_run)
 
 
 # ---------------------------------------------------------------------------
@@ -506,7 +542,7 @@ def plot_progress(results: list[dict]) -> None:
     ax2.legend(fontsize=7, ncol=2)
     ax2.grid(True, alpha=0.3)
 
-    completed = len(results)
+    completed = sum(int(r.get("n_repeats", 0)) >= N_REPEATS for r in results)
     total     = len(DATA_DIMS) * len(SOLVER_NAMES)
     fig.suptitle(
         f"1-D Interval DLI — solver comparison  "
@@ -556,6 +592,7 @@ def load_partial() -> tuple[list[dict], set[tuple[str, int]]]:
             return [], set()
         results = []
         completed_keys: set[tuple[str, int]] = set()
+        partial_count = 0
         for (solver_name, dim, nrep, t_mean, t_std, ts,
              up, lo, up_std, lo_std, tv, pl, pu) in zip(
             d["solvers"], d["data_dims"], d["n_repeats"],
@@ -579,8 +616,15 @@ def load_partial() -> tuple[list[dict], set[tuple[str, int]]]:
                 "prior_upper":     np.asarray(pu),
             }
             results.append(entry)
-            completed_keys.add((str(solver_name), int(dim)))
-        print(f"  Resuming: loaded {len(results)} completed runs from {PARTIAL_SAVE}")
+            n_done = int(nrep)
+            if n_done >= N_REPEATS:
+                completed_keys.add((str(solver_name), int(dim)))
+            else:
+                partial_count += 1
+        print(
+            f"  Resuming: loaded {len(results)} runs from {PARTIAL_SAVE} "
+            f"({len(completed_keys)} complete, {partial_count} partial for repeats={N_REPEATS})"
+        )
         return results, completed_keys
     except Exception as exc:
         print(f"  Warning: could not load partial save ({exc}) — starting fresh.")
@@ -626,6 +670,14 @@ def main() -> None:
     # ---- Main sweep --------------------------------------------------------
     print("\nStarting solver sweep...")
     sys.stdout.flush()
+
+    def _upsert_result(results_list: list[dict[str, Any]], new_entry: dict[str, Any]) -> None:
+        for i, old in enumerate(results_list):
+            if old["solver"] == new_entry["solver"] and old["data_dim"] == new_entry["data_dim"]:
+                results_list[i] = new_entry
+                return
+        results_list.append(new_entry)
+
     for n_d in DATA_DIMS:
         (M, D, P, G, T,
          m_bar, d_tilde,
@@ -641,19 +693,27 @@ def main() -> None:
             print(f"\n  {solver_name}  N_d={n_d}")
             sys.stdout.flush()
             try:
+                def _on_repeat_checkpoint(intermediate_result, rep_done, rep_total):
+                    _upsert_result(results, intermediate_result)
+                    save_partial(results)
+                    plot_progress(results)
+                    print(f"      [checkpoint saved after repeat {rep_done}/{rep_total}]")
+                    sys.stdout.flush()
+
                 result = run_one_repeated(
                     solver_name,
                     M, D, P, G, T,
                     m_bar, d_tilde,
                     model_prior_support, data_error_support,
                     n_repeats=N_REPEATS,
+                    progress_callback=_on_repeat_checkpoint,
                 )
             except Exception as exc:
                 print(f"    ERROR: {exc}")
                 sys.stdout.flush()
                 continue
 
-            results.append(result)
+            _upsert_result(results, result)
             completed_keys.add(key)
             save_partial(results)
             plot_progress(results)

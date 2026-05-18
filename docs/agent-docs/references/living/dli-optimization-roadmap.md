@@ -10,6 +10,8 @@ DLI, derived from the Phase 4 performance analysis.
 
 **Plan reference:** `intervalinf/docs/agent-docs/completed-plans/dli-benchmarking-and-analysis-plan.md`, Phase 5.
 
+**Mission context (2026-05-13):** This reference documents the DLI optimization priorities as identified in March 2026. The *Lowering Execution Framework* mission (started 2026-04-03) is currently prioritizing a planner/lowering layer (phases 1–5) that may provide indirect performance improvements through operator fusion and reduced representations. Direct optimization of these targets is deferred pending mission phase 6 results. The roadmap remains a valid guide for post-mission work.
+
 ---
 
 ## 1. Measured Cost Summary (from Phase 4)

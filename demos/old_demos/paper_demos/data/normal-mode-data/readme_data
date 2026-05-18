@@ -1,0 +1,21 @@
+### PK - Oxford - May 2026
+
+# Splitting function data based on Deuss et al. (GJI, 2013) and Koelemeijer et al. (GRL, 2013),
+# as well as a subset of these that were used to construct SP12RTS.
+# The files data_list_arwen-paula and data_list_SP12RTS give lists of all the modes contained in these datasets
+
+# Splitting function coefficients are given for each mode in a separate file ($mode.new).
+# These are organised in the following way:
+
+smax 
+s t cst cst_err
+s t cst cst_err
+s t cst cst_err
+s t cst cst_err
+
+with:
+- smax:      the maximum spherical harmonic degree that has been measured
+- s:         the degree of the spherical harmonic degree (from 0 to smax)
+- t:         the order of the spherical harmonic degree (from 0 to 2*smax
+- cst:       the splitting function coefficient (in raw format)
+- cst_err:   the uncertainty in the splitting function coefficient (in raw format)

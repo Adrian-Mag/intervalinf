@@ -1,0 +1,19 @@
+### PK - Oxford - May 2026
+
+# Splitting function synthetics for various Earth models (S20RTS and / or Crust5.1, 
+# as well as the addition of CMB topography models on top. 
+# These files are created for all modes in the data_list_arwen-paula file. 
+
+# In each file, splitting function coefficients are given for each mode, organised in the following way:
+
+l s t cst_syn 
+l s t cst_syn 
+l s t cst_syn 
+l s t cst_syn
+
+with:
+- l:	     the angular order of the mode 
+- s:         the degree of the spherical harmonic degree (from 0 to smax)
+- t:         the order of the spherical harmonic degree (from 0 to 2*smax
+- cst_syn:   the predicted splitting function coefficients (in raw format)
+

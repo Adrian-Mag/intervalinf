@@ -5,6 +5,8 @@ opportunities, produced from Phases 1–3 of the DLI benchmarking plan.
 
 **Plan reference:** `intervalinf/docs/agent-docs/completed-plans/dli-benchmarking-and-analysis-plan.md`, Phase 4.
 
+**Mission context (2026-05-13):** This reference documents the performance baseline and optimization landscape as measured in March 2026. The *Lowering Execution Framework* mission (started 2026-04-03) is currently prioritizing planner/lowering work (phases 1–5) over direct DLI performance optimization. Once phase 6 (benchmark & go/no-go) completes, future optimization work may return to these targets. The measurements and analyses here remain valid and will inform post-mission optimization priorities.
+
 ---
 
 ## 1. Measured Performance Profile
