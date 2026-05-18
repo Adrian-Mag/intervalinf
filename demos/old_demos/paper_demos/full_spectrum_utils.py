@@ -16,6 +16,11 @@ Provides:
     prior_power_spectrum_default — default per-parameter spectral amplitude τ_{p,s} (Phase 3).
     build_shared_bessel_blocks   — build one BesselSobolevInverse per radial parameter (Phase 3).
     build_block_prior            — assemble block GaussianMeasure prior (Phase 3).
+
+    solve_block      — compute Bayesian posterior for a single (s,t) block (Phase 4).
+    solve_all_blocks — solve all blocks, optionally in parallel (Phase 4).
+
+    build_property_operator — build per-block property operators T_st: M_st → R^{N_p} (Phase 5).
 """
 
 import dataclasses
@@ -597,3 +602,269 @@ def build_block_prior(
     prior_functions = GaussianMeasure.from_direct_sum([prior_vp, prior_vs, prior_rho])
     prior_euclidean = GaussianMeasure.from_direct_sum([prior_sigma_0, prior_sigma_1])
     return GaussianMeasure.from_direct_sum([prior_functions, prior_euclidean])
+
+
+# =============================================================================
+# Phase 4 — Independent block posteriors
+# =============================================================================
+
+def solve_block(
+    s: int,
+    t: int,
+    G_st: 'RowLinearOperator',
+    C_D_st: 'GaussianMeasure',
+    prior_st: 'GaussianMeasure',
+    d_st: np.ndarray,
+) -> 'GaussianMeasure':
+    """
+    Compute the Bayesian posterior for a single $(s, t)$ block.
+
+    Uses the data-space formalism: assembles the $N_d \\times N_d$ normal
+    operator $N = G C_{\\mathrm{prior}} G^* + C_D$ and solves it via dense LU
+    factorisation.  This is efficient when $N_d$ is small (tens to hundreds).
+
+    Parameters
+    ----------
+    s : int
+        Splitting degree (unused computationally; retained for logging / tracing).
+    t : int
+        Real-harmonic component index (unused computationally).
+    G_st : RowLinearOperator
+        Forward operator mapping $\\mathcal{M}_{st}$ to $\\mathcal{D}_{st}$.
+    C_D_st : GaussianMeasure
+        Data noise measure $\\mathcal{N}(0, C_D)$.
+    prior_st : GaussianMeasure
+        Prior measure on $\\mathcal{M}_{st}$.
+    d_st : np.ndarray
+        Observed data vector of shape $(N_d,)$.
+
+    Returns
+    -------
+    GaussianMeasure
+        Posterior measure $p(m \\mid d)$ on $\\mathcal{M}_{st}$.
+    """
+    from pygeoinf import LinearForwardProblem, LinearBayesianInversion
+    from pygeoinf.linear_solvers import LUSolver
+
+    problem = LinearForwardProblem(G_st, data_error_measure=C_D_st)
+    bayes = LinearBayesianInversion(problem, prior_st)
+    return bayes.model_posterior_measure(d_st, LUSolver())
+
+
+def solve_all_blocks(
+    forward_dict: Dict['BlockIndex', Tuple],
+    prior_dict: Dict['BlockIndex', 'GaussianMeasure'],
+    split: Dict['BlockIndex', 'NormalModeDataRegistry'],
+    n_jobs: int = 1,
+) -> Dict['BlockIndex', 'GaussianMeasure']:
+    """
+    Solve all $(s, t)$ blocks independently, optionally in parallel.
+
+    Each block is solved via :func:`solve_block` using the data-space Bayesian
+    formalism.  Parallelism uses ``joblib`` thread-based workers (shared memory,
+    no pickle serialisation of operator objects required).
+
+    Parameters
+    ----------
+    forward_dict : dict
+        ``{BlockIndex: (G_st, C_D_st, M_st, D_st)}`` — output of
+        :func:`build_block_forward` for every block.
+    prior_dict : dict
+        ``{BlockIndex: GaussianMeasure}`` — output of :func:`build_block_prior`
+        for every block.
+    split : dict
+        ``{BlockIndex: NormalModeDataRegistry}`` — output of
+        :func:`block_data_split`.
+    n_jobs : int
+        Joblib parallelism level.  ``n_jobs=1`` runs serially;
+        ``n_jobs=-1`` uses all available threads.
+
+    Returns
+    -------
+    dict
+        ``{BlockIndex: GaussianMeasure}`` — posterior measure for each block.
+    """
+    import joblib
+
+    blocks = list(forward_dict.keys())
+
+    def _solve_one(block):
+        G_st, C_D_st, M_st, D_st = forward_dict[block]
+        prior_st = prior_dict[block]
+        d_st = split[block].data_vector
+        return block, solve_block(block.s, block.t, G_st, C_D_st, prior_st, d_st)
+
+    results = joblib.Parallel(n_jobs=n_jobs, prefer='threads')(
+        joblib.delayed(_solve_one)(b) for b in blocks
+    )
+    return dict(results)
+
+
+# =============================================================================
+# Phase 5 — Property operators via spherical-harmonic projection
+# =============================================================================
+
+def build_property_operator(
+    targets: list,
+    blocks: List['BlockIndex'],
+    forward_dict: Dict['BlockIndex', Tuple],
+    specs: 'RadialSpecs',
+    s_max: int,
+    n_radial: int = 500,
+) -> Dict['BlockIndex', 'LinearOperator']:
+    """
+    Build per-block property operators $T_{st} : \\mathcal{M}_{st} \\to
+    \\mathbb{R}^{N_p}$.
+
+    For each block $(s, t)$, returns a :class:`~pygeoinf.LinearOperator` with
+    explicit forward and adjoint mappings:
+
+    - **Bulk forward**: $T_i(m) = B_{st,i} \\int h_i(r)\\,f_p(r)\\,\\mathrm{d}r$
+      (trapezoidal quadrature over the radial domain).
+    - **CMB forward**: $T_i(m) = B_{st,i} \\cdot \\sigma_1[0]$ (CMB topography
+      scalar).
+    - **Adjoint**: $T_{st}^*(\\lambda)$ maps $\\mathbb{R}^{N_p}$ back to a nested
+      model element in $\\mathcal{M}_{st}$ consisting of scaled interpolated
+      bump functions for each parameter component.
+
+    The angular coefficient $B_{st,i}$ is the $(s,t)$-th real SH coefficient of
+    target $i$'s $4\\pi$-normalised Gaussian angular bump (pyshtools convention).
+
+    Parameters
+    ----------
+    targets : list
+        List of :class:`~property_targets.BulkTarget` or
+        :class:`~property_targets.CMBTarget` instances.
+    blocks : list of BlockIndex
+        Blocks to build operators for.
+    forward_dict : dict
+        ``{BlockIndex: (G_st, C_D_st, M_st, D_st)}`` from
+        :func:`build_block_forward`.
+    specs : RadialSpecs
+        Shared configuration (provides ``earth_radius_km``, ``icb_radius_km``,
+        ``cmb_radius_km``).
+    s_max : int
+        Maximum splitting degree (used to compute SH coefficients).
+    n_radial : int
+        Number of quadrature points for the trapezoidal radial integral.
+        Default 500.
+
+    Returns
+    -------
+    dict
+        ``{BlockIndex: LinearOperator}`` — each maps
+        $\\mathcal{M}_{st} \\to \\mathbb{R}^{N_p}$.
+    """
+    from property_targets import (
+        BulkTarget, CMBTarget, build_block_property_coeffs, radial_bump,
+    )
+
+    N_p = len(targets)
+
+    # Pre-compute angular coefficients for every block
+    block_coeffs = build_block_property_coeffs(targets, blocks, s_max)
+
+    # Full radial grid and per-target restriction sub-grids
+    r_full = np.linspace(0.0, specs.earth_radius_km, n_radial)
+    r_IC = r_full[r_full <= specs.icb_radius_km]
+    r_M = r_full[r_full >= specs.cmb_radius_km]
+
+    # Precompute radial bumps on each relevant grid for BulkTargets
+    h_full = []    # shape (N_p, n_radial) for vp / rho targets
+    h_IC = []      # restricted to [0, ICB] for vs_IC
+    h_M = []       # restricted to [CMB, R] for vs_M
+    for target in targets:
+        if isinstance(target, BulkTarget):
+            h_full.append(radial_bump(r_full, target.r0_km, target.sigma_r_km))
+            h_IC.append(radial_bump(r_IC, target.r0_km, target.sigma_r_km))
+            h_M.append(radial_bump(r_M, target.r0_km, target.sigma_r_km))
+        else:
+            # CMBTarget — no radial bump; append zeros for consistent indexing
+            h_full.append(np.zeros_like(r_full))
+            h_IC.append(np.zeros_like(r_IC))
+            h_M.append(np.zeros_like(r_M))
+
+    def _make_operator(block):
+        """Factory to avoid closure-over-loop-variable issues."""
+        B_st = block_coeffs[block]
+        _, _, M_st, _ = forward_dict[block]
+
+        # --- cached copies to avoid capture issues ---
+        _B = B_st.copy()
+        _h_full = [h.copy() for h in h_full]
+        _h_IC = [h.copy() for h in h_IC]
+        _h_M = [h.copy() for h in h_M]
+        _r_full = r_full.copy()
+        _r_IC = r_IC.copy()
+        _r_M = r_M.copy()
+
+        def forward_fn(m_st):
+            result = np.zeros(N_p)
+            for i, target in enumerate(targets):
+                if isinstance(target, BulkTarget):
+                    if target.param == 'vp':
+                        integral = np.trapezoid(_h_full[i] * m_st[0][0](_r_full), _r_full)
+                        result[i] = _B[i] * integral
+                    elif target.param == 'vs':
+                        i_IC = np.trapezoid(_h_IC[i] * m_st[0][1][0](_r_IC), _r_IC)
+                        i_M = np.trapezoid(_h_M[i] * m_st[0][1][1](_r_M), _r_M)
+                        result[i] = _B[i] * (i_IC + i_M)
+                    elif target.param == 'rho':
+                        integral = np.trapezoid(_h_full[i] * m_st[0][2](_r_full), _r_full)
+                        result[i] = _B[i] * integral
+                elif isinstance(target, CMBTarget):
+                    result[i] = _B[i] * m_st[1][1][0]
+            return result
+
+        def adjoint_fn(lam):
+            """Adjoint: R^{N_p} → M_st (nested list structure)."""
+            # Accumulate scaled bump arrays for each component
+            f_vp_vals = np.zeros(len(_r_full))
+            f_vs_IC_vals = np.zeros(len(_r_IC))
+            f_vs_M_vals = np.zeros(len(_r_M))
+            f_rho_vals = np.zeros(len(_r_full))
+            sigma_1_val = 0.0
+
+            for i, target in enumerate(targets):
+                if isinstance(target, BulkTarget):
+                    scale = _B[i] * lam[i]
+                    if target.param == 'vp':
+                        f_vp_vals += scale * _h_full[i]
+                    elif target.param == 'vs':
+                        f_vs_IC_vals += scale * _h_IC[i]
+                        f_vs_M_vals += scale * _h_M[i]
+                    elif target.param == 'rho':
+                        f_rho_vals += scale * _h_full[i]
+                elif isinstance(target, CMBTarget):
+                    sigma_1_val += _B[i] * lam[i]
+
+            domain_full = IntervalDomain(0.0, specs.earth_radius_km)
+            domain_IC = IntervalDomain(0.0, specs.icb_radius_km)
+            domain_M = IntervalDomain(specs.cmb_radius_km, specs.earth_radius_km)
+
+            def _make_fn(domain, r_grid, vals):
+                v = vals.copy()
+                r_g = r_grid.copy()
+                return _IFunction(
+                    domain,
+                    evaluate_callable=lambda r, _v=v, _rg=r_g: np.interp(r, _rg, _v),
+                )
+
+            f_vp = _make_fn(domain_full, _r_full, f_vp_vals)
+            f_vs_IC = _make_fn(domain_IC, _r_IC, f_vs_IC_vals)
+            f_vs_M = _make_fn(domain_M, _r_M, f_vs_M_vals)
+            f_rho = _make_fn(domain_full, _r_full, f_rho_vals)
+
+            return [
+                [f_vp, [f_vs_IC, f_vs_M], f_rho],
+                [np.zeros(1), np.array([sigma_1_val])],
+            ]
+
+        return LinearOperator(
+            M_st,
+            EuclideanSpace(N_p),
+            forward_fn,
+            adjoint_mapping=adjoint_fn,
+        )
+
+    return {block: _make_operator(block) for block in blocks}

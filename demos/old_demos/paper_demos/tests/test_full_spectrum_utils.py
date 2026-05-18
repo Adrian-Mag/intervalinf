@@ -263,3 +263,102 @@ def test_block_prior_is_block_diagonal():
         out[0][2](x_rho), 0.0, atol=1e-12,
         err_msg="rho off-diagonal block should be zero",
     )
+
+
+# =============================================================================
+# Phase 4 Tests
+# =============================================================================
+
+from full_spectrum_utils import solve_block, solve_all_blocks
+from pygeoinf import GaussianMeasure
+
+
+def _make_phase4_setup(s_max=2, n_basis=20):
+    """Build forward_dict, prior_dict, split, blocks for Phase 4 tests."""
+    catalog = NormalModeKernelCatalog(KERNEL_DIR)
+    reg = NormalModeDataRegistry(DATA_DIR, mode_filter=catalog.list_modes())
+    blocks = enumerate_blocks(reg, s_max=s_max)
+    split = block_data_split(reg, blocks)
+    specs = RadialSpecs(
+        n_basis=n_basis,
+        parallel_cfg=ParallelConfig(enabled=False, n_jobs=1),
+    )
+    shared = build_shared_bessel_blocks(specs)
+    forward_dict = {
+        b: build_block_forward(b.s, b.t, split[b], catalog, specs)
+        for b in blocks
+    }
+    prior_dict = {
+        b: build_block_prior(b.s, b.t, shared, specs)
+        for b in blocks
+    }
+    return blocks, forward_dict, prior_dict, split
+
+
+def test_solve_block_smoke_one_block():
+    """solve_block returns a GaussianMeasure with an accessible expectation and covariance."""
+    blocks, forward_dict, prior_dict, split = _make_phase4_setup(s_max=2, n_basis=20)
+    block = blocks[0]
+    G_st, C_D_st, M_st, D_st = forward_dict[block]
+    prior_st = prior_dict[block]
+    d_st = split[block].data_vector
+
+    posterior = solve_block(block.s, block.t, G_st, C_D_st, prior_st, d_st)
+
+    assert isinstance(posterior, GaussianMeasure), (
+        f"Expected GaussianMeasure, got {type(posterior)}"
+    )
+    # Expectation must exist and have the right nesting structure (list of lists)
+    exp = posterior.expectation
+    assert exp is not None, "Posterior expectation should not be None"
+    assert isinstance(exp, list), f"Expected list structure for expectation, got {type(exp)}"
+    assert len(exp) == 2, f"Expected 2-element list (functions, euclidean), got len={len(exp)}"
+
+    # Apply covariance to zero vector; must not raise and must return same structure
+    m_zero = M_st.zero
+    cov_out = posterior.covariance(m_zero)
+    assert cov_out is not None, "Covariance applied to zero should return something"
+
+
+def test_solve_block_posterior_reduces_uncertainty():
+    """Posterior mean predicts data better than the zero prior mean."""
+    blocks, forward_dict, prior_dict, split = _make_phase4_setup(s_max=2, n_basis=20)
+    block = blocks[0]
+    G_st, C_D_st, M_st, D_st = forward_dict[block]
+    prior_st = prior_dict[block]
+    d_st = split[block].data_vector
+
+    posterior = solve_block(block.s, block.t, G_st, C_D_st, prior_st, d_st)
+
+    # Prior mean is zero → G(0) = 0 → residual equals ||d_st||
+    d_pred_prior = G_st(M_st.zero)
+    residual_prior = np.linalg.norm(d_st - d_pred_prior)
+
+    # Posterior mean should predict data better (or equal at worst)
+    d_pred_post = G_st(posterior.expectation)
+    residual_post = np.linalg.norm(d_st - d_pred_post)
+
+    assert residual_post <= residual_prior + 1e-12, (
+        f"Posterior residual {residual_post:.6g} should be <= prior residual {residual_prior:.6g}"
+    )
+
+
+def test_solve_all_blocks_parallel_matches_serial():
+    """n_jobs=1 and n_jobs=2 produce identical posterior sigma_1 expectations."""
+    blocks, forward_dict, prior_dict, split = _make_phase4_setup(s_max=2, n_basis=20)
+
+    serial_results = solve_all_blocks(forward_dict, prior_dict, split, n_jobs=1)
+    parallel_results = solve_all_blocks(forward_dict, prior_dict, split, n_jobs=2)
+
+    assert set(serial_results.keys()) == set(parallel_results.keys()), (
+        "Block keys differ between serial and parallel runs"
+    )
+    for b in blocks:
+        # expectation structure: [[f_vp, [f_vs_IC, f_vs_M], f_rho], [sigma_0, sigma_1]]
+        # sigma_1 is expectation[1][1], a numpy array of shape (1,)
+        sigma_1_serial = serial_results[b].expectation[1][1]
+        sigma_1_parallel = parallel_results[b].expectation[1][1]
+        np.testing.assert_allclose(
+            sigma_1_serial, sigma_1_parallel, atol=1e-10,
+            err_msg=f"sigma_1 posterior mean differs for block (s={b.s}, t={b.t})",
+        )
