@@ -473,12 +473,17 @@ class Lebesgue(HilbertSpace):
 
         Computes c_i = ⟨φᵢ, f⟩ / ⟨φᵢ, φᵢ⟩ for each basis function.
 
+        For a basis-free space (dim=0, basis=None) this always returns an
+        empty array of length 0.
+
         Args:
             f: A Function to project.
 
         Returns:
             Coefficient array of length dim.
         """
+        if self._dim == 0:
+            return np.zeros(0)
         self._require_basis()
 
         # If function already has coefficients and is in this space, use them
@@ -513,12 +518,22 @@ class Lebesgue(HilbertSpace):
           supported) → ``support=None``.
         - Otherwise → union of the active basis-function supports.
 
+        For a basis-free space (dim=0, basis=None) the only valid input is an
+        empty array; this returns the zero function.
+
         Args:
             coefficients: Array of length dim.
 
         Returns:
             Function f = Σ cᵢ φᵢ with inferred support metadata.
         """
+        if self._dim == 0:
+            if len(coefficients) != 0:
+                raise ValueError(
+                    f"Expected 0 coefficients for basis-free space, "
+                    f"got {len(coefficients)}"
+                )
+            return self.zero
         self._require_basis()
 
         if len(coefficients) != self.dim:
