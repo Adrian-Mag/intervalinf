@@ -20,7 +20,8 @@ Provides:
     solve_block      — compute Bayesian posterior for a single (s,t) block (Phase 4).
     solve_all_blocks — solve all blocks, optionally in parallel (Phase 4).
 
-    build_property_operator — build per-block property operators T_st: M_st → R^{N_p} (Phase 5).
+    build_property_operator     — build per-block property operators T_st: M_st → R^{N_p} (Phase 5).
+    assemble_property_posterior — assemble the full N_p × N_p property posterior (Phase 6).
 """
 
 import dataclasses
@@ -661,8 +662,9 @@ def solve_all_blocks(
     Solve all $(s, t)$ blocks independently, optionally in parallel.
 
     Each block is solved via :func:`solve_block` using the data-space Bayesian
-    formalism.  Parallelism uses ``joblib`` thread-based workers (shared memory,
-    no pickle serialisation of operator objects required).
+    formalism.  Parallelism uses ``joblib`` process-based workers.  Each worker
+    caps native thread pools to one thread while solving its block so BLAS/FFT
+    kernels do not oversubscribe the machine.
 
     Parameters
     ----------
@@ -677,7 +679,7 @@ def solve_all_blocks(
         :func:`block_data_split`.
     n_jobs : int
         Joblib parallelism level.  ``n_jobs=1`` runs serially;
-        ``n_jobs=-1`` uses all available threads.
+        ``n_jobs=-1`` uses all available worker processes.
 
     Returns
     -------
@@ -685,6 +687,7 @@ def solve_all_blocks(
         ``{BlockIndex: GaussianMeasure}`` — posterior measure for each block.
     """
     import joblib
+    from threadpoolctl import threadpool_limits
 
     blocks = list(forward_dict.keys())
 
@@ -692,11 +695,15 @@ def solve_all_blocks(
         G_st, C_D_st, M_st, D_st = forward_dict[block]
         prior_st = prior_dict[block]
         d_st = split[block].data_vector
-        return block, solve_block(block.s, block.t, G_st, C_D_st, prior_st, d_st)
+        with threadpool_limits(limits=1):
+            return block, solve_block(block.s, block.t, G_st, C_D_st, prior_st, d_st)
 
-    results = joblib.Parallel(n_jobs=n_jobs, prefer='threads')(
-        joblib.delayed(_solve_one)(b) for b in blocks
-    )
+    if n_jobs == 1:
+        results = [_solve_one(b) for b in blocks]
+    else:
+        results = joblib.Parallel(n_jobs=n_jobs, prefer='processes')(
+            joblib.delayed(_solve_one)(b) for b in blocks
+        )
     return dict(results)
 
 
@@ -868,3 +875,76 @@ def build_property_operator(
         )
 
     return {block: _make_operator(block) for block in blocks}
+
+
+# =============================================================================
+# Phase 6 — Assemble full property posterior N(mu_P, C_P)
+# =============================================================================
+
+def assemble_property_posterior(
+    property_op_dict: Dict['BlockIndex', 'LinearOperator'],
+    model_posterior_dict: Dict['BlockIndex', 'GaussianMeasure'],
+) -> 'GaussianMeasure':
+    """
+    Assemble the full property posterior $\\mathcal{N}(\\mu_P, C_P)$ by pushing
+    per-block model posteriors through the per-block property operators.
+
+    **Mean:**
+
+    $$\\mu_P = \\sum_{(s,t)} T_{st}(\\tilde{m}_{st})$$
+
+    **Covariance ($N_p \\times N_p$ dense matrix):**
+
+    $$C_P = \\sum_{(s,t)} T_{st}\\, C^{\\mathrm{post}}_{st}\\, T_{st}^*$$
+
+    For column $j$ of $C_P$, this evaluates:
+
+    $$C_P[:, j] += T_{st}\\bigl(C^{\\mathrm{post}}_{st}(T_{st}^*(e_j))\\bigr)$$
+
+    Total cost: $O(N_p \\cdot |\\mathcal{I}|)$ covariance applies.
+
+    Parameters
+    ----------
+    property_op_dict : dict
+        ``{BlockIndex: LinearOperator}`` — each maps
+        $\\mathcal{M}_{st} \\to \\mathbb{R}^{N_p}$.
+    model_posterior_dict : dict
+        ``{BlockIndex: GaussianMeasure}`` — per-block posterior (or prior)
+        on $\\mathcal{M}_{st}$.
+
+    Returns
+    -------
+    GaussianMeasure
+        Gaussian measure on $\\mathbb{R}^{N_p}$ with dense covariance operator.
+    """
+    N_p = next(iter(property_op_dict.values())).codomain.dim
+
+    mu_P = np.zeros(N_p)
+    C_P = np.zeros((N_p, N_p))
+
+    for block, T_st in property_op_dict.items():
+        post_st = model_posterior_dict[block]
+
+        # Mean contribution
+        mu_P += T_st(post_st.expectation)
+
+        # Covariance contribution: C_P[:, j] += T_st(C_post(T_st^*(e_j)))
+        for j in range(N_p):
+            e_j = np.zeros(N_p)
+            e_j[j] = 1.0
+            T_adj_ej = T_st.adjoint(e_j)        # M_st element
+            v = post_st.covariance(T_adj_ej)    # M_st element
+            C_P[:, j] += T_st(v)               # R^{N_p} vector
+
+    # Symmetrize to correct for numerical quadrature asymmetry
+    C_P = 0.5 * (C_P + C_P.T)
+
+    property_space = EuclideanSpace(N_p)
+    C_matrix = C_P  # fully assembled; capture final value
+    C_op = LinearOperator(
+        property_space,
+        property_space,
+        lambda x, _C=C_matrix: _C @ x,
+        adjoint_mapping=lambda x, _C=C_matrix: _C.T @ x,
+    )
+    return GaussianMeasure(covariance=C_op, expectation=mu_P)

@@ -750,6 +750,11 @@ class SOLAOperator(LinearOperator):
             K_mat = np.stack(
                 [self._kernel_eval_cache[i] for i in range(self.N_d)], axis=0
             )  # (N_d, n_pts)
+            # TODO(mass-weighted): if self.domain is MassWeightedHilbertSpace,
+            # K_mat.T @ data gives sum_i data_i k_i but the correct adjoint is
+            # M^{-1}(sum_i data_i k_i).  Fix: cache a second "adjoint kernel"
+            # matrix M_inv_K_mat (rows = M^{-1}(k_i) on the shared mesh) and
+            # use M_inv_K_mat.T @ data here instead.
             precomputed_vals = K_mat.T @ data  # (n_pts,)  — pure BLAS
             precomputed_mesh_id = id(xs_shared)
 
@@ -883,6 +888,12 @@ class SOLAOperator(LinearOperator):
         xs = self._get_or_build_mesh()
         weights = self._build_quadrature_weights(xs)
         kernel_matrix = self._build_kernel_matrix(xs)
+        # TODO(mass-weighted): currently computes (G G*)_{ij} = integral(k_i k_j dx),
+        # which is correct only for a flat L² domain.  For MassWeightedHilbertSpace
+        # with mass M the adjoint satisfies G*(y) = M^{-1}(sum y_i k_i), so the
+        # correct formula is integral(k_i (M^{-1} k_j) dx).  Fix: replace the
+        # right-hand kernel_matrix with an "adjoint kernel matrix" whose rows are
+        # M^{-1}(k_j) evaluated on xs.  See discussion 2026-05-19.
         return (kernel_matrix * weights[np.newaxis, :]) @ kernel_matrix.T
 
     def _compute_cross_gram_matrix_slow(
@@ -952,6 +963,11 @@ class SOLAOperator(LinearOperator):
         weights = self._build_quadrature_weights(xs, method=self.integration.method)
         left_kernel_matrix = self._build_kernel_matrix(xs)
         right_kernel_matrix = other._build_kernel_matrix(xs)
+        # TODO(mass-weighted): currently computes (T G*)_{ij} = integral(t_i k_j dx).
+        # For a MassWeightedHilbertSpace domain on `other`, the adjoint G*(y) =
+        # M^{-1}(sum y_j k_j), so the correct formula is integral(t_i (M^{-1} k_j) dx).
+        # Fix: replace right_kernel_matrix with other's adjoint kernel matrix
+        # (rows = M^{-1}(k_j) on xs).  See discussion 2026-05-19.
         return (
             left_kernel_matrix * weights[np.newaxis, :]
         ) @ right_kernel_matrix.T

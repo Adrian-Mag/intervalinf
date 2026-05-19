@@ -362,3 +362,88 @@ def test_solve_all_blocks_parallel_matches_serial():
             sigma_1_serial, sigma_1_parallel, atol=1e-10,
             err_msg=f"sigma_1 posterior mean differs for block (s={b.s}, t={b.t})",
         )
+
+
+# =============================================================================
+# Phase 6 — Assemble full property posterior
+# =============================================================================
+
+from full_spectrum_utils import build_property_operator, assemble_property_posterior
+from property_targets import BulkTarget, CMBTarget
+
+
+def _make_phase6_setup(n_radial=100):
+    """Build property_op_dict, posterior_dict, and prior_dict for Phase 6 tests."""
+    targets = [
+        BulkTarget(
+            param='vp', lat_deg=10.0, lon_deg=210.0,
+            sigma_ang_deg=20.0, r0_km=4500.0, sigma_r_km=300.0,
+        ),
+        CMBTarget(lat_deg=0.0, lon_deg=0.0, sigma_ang_deg=20.0),
+    ]
+    blocks, forward_dict, prior_dict, split = _make_phase4_setup(s_max=2, n_basis=20)
+    posterior_dict = solve_all_blocks(forward_dict, prior_dict, split, n_jobs=1)
+    specs = RadialSpecs(n_basis=20)
+    property_op_dict = build_property_operator(
+        targets, blocks, forward_dict, specs=specs, s_max=2, n_radial=n_radial,
+    )
+    return targets, property_op_dict, posterior_dict, prior_dict
+
+
+def test_assemble_property_posterior_mean_matches_pushforward():
+    """Assembled posterior mean equals the direct sum of T_st applied to block means."""
+    targets, property_op_dict, posterior_dict, _ = _make_phase6_setup()
+
+    posterior = assemble_property_posterior(property_op_dict, posterior_dict)
+
+    N_p = len(targets)
+    mu_direct = np.zeros(N_p)
+    for block, T_st in property_op_dict.items():
+        mu_direct += T_st(posterior_dict[block].expectation)
+
+    np.testing.assert_allclose(
+        posterior.expectation, mu_direct, rtol=1e-10,
+        err_msg="Property posterior mean does not match direct pushforward sum",
+    )
+
+
+def test_assemble_property_posterior_cov_symmetric_psd():
+    """Property posterior covariance matrix is symmetric and positive semi-definite."""
+    targets, property_op_dict, posterior_dict, _ = _make_phase6_setup()
+
+    posterior = assemble_property_posterior(property_op_dict, posterior_dict)
+
+    N_p = len(targets)
+    C = np.zeros((N_p, N_p))
+    for j in range(N_p):
+        e_j = np.zeros(N_p)
+        e_j[j] = 1.0
+        C[:, j] = posterior.covariance(e_j)
+
+    np.testing.assert_allclose(C, C.T, atol=1e-8, err_msg="Covariance matrix not symmetric")
+    eigvals = np.linalg.eigvalsh(C)
+    assert eigvals.min() >= -1e-8, (
+        f"Covariance matrix not PSD: minimum eigenvalue = {eigvals.min():.3e}"
+    )
+
+
+def test_assemble_property_posterior_reduces_uncertainty():
+    """Property posterior standard deviations are no larger than the prior's."""
+    targets, property_op_dict, posterior_dict, prior_dict = _make_phase6_setup()
+
+    prior_property = assemble_property_posterior(property_op_dict, prior_dict)
+    post_property = assemble_property_posterior(property_op_dict, posterior_dict)
+
+    N_p = len(targets)
+    sigma_prior = np.zeros(N_p)
+    sigma_post = np.zeros(N_p)
+    for j in range(N_p):
+        e_j = np.zeros(N_p)
+        e_j[j] = 1.0
+        sigma_prior[j] = np.sqrt(prior_property.covariance(e_j)[j])
+        sigma_post[j] = np.sqrt(post_property.covariance(e_j)[j])
+
+    assert np.all(sigma_post <= sigma_prior + 1e-8), (
+        f"All components should have posterior std <= prior std: "
+        f"sigma_post={sigma_post}, sigma_prior={sigma_prior}"
+    )
