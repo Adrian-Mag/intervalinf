@@ -243,11 +243,14 @@ def plot_block_posterior(
     fig.suptitle(f"Block (s={block.s}, t={block.t}) — radial posterior", fontsize=13)
 
     def _plot_radial_panel(ax, r_mean, mean, probe_r, std, label, color='steelblue'):
+        # Interpolate the coarsely-probed std onto the same dense grid as the
+        # mean so that fill_betweenx is centred on the mean at every point.
+        std_dense = np.interp(r_mean, probe_r, std)
         ax.plot(mean, r_mean, color=color, lw=1.5, label='mean')
         ax.fill_betweenx(
-            probe_r,
-            np.interp(probe_r, r_mean, mean) - std,
-            np.interp(probe_r, r_mean, mean) + std,
+            r_mean,
+            mean - std_dense,
+            mean + std_dense,
             alpha=0.3, color=color, label='±1σ',
         )
         ax.set_ylabel('radius (km)')
