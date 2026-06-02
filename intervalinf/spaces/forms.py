@@ -110,10 +110,6 @@ class LinearFormKernel(LinearForm):
                 "Either mapping, kernel, or components must be provided"
             )
 
-        # Get weight from domain if it has one (e.g., weighted L² space)
-        # None means standard (unweighted) inner product
-        self._weight = getattr(domain, '_weight', None)
-
         # Cheeky trick: provide fake components so the base class doesn't
         # try to compute them (which requires basis functions)
         self._fake_components = True
@@ -134,10 +130,14 @@ class LinearFormKernel(LinearForm):
         Evaluate the linear form via integration with the kernel.
 
         For a single kernel k and function v:
-            φ(v) = ∫ k(x) v(x) w(x) dx
+            φ(v) = ∫ k(x) v(x) dx
 
         For a list of kernels (direct sum), sums contributions:
-            φ([v₁, v₂, ...]) = Σᵢ ∫ kᵢ(x) vᵢ(x) wᵢ(x) dx
+            φ([v₁, v₂, ...]) = Σᵢ ∫ kᵢ(x) vᵢ(x) dx
+
+        For a weighted inner product use a `WeightedLebesgue` domain: its
+        Riesz map folds the weight into the kernel (``kernel = M x = w·x``),
+        so the plain pairing here reproduces ``⟨x, v⟩_w``.
         """
         # Import here to avoid circular import at module level
         from intervalinf.core.functions import Function
@@ -154,7 +154,6 @@ class LinearFormKernel(LinearForm):
             if isinstance(k, list):
                 return sum(_eval(ki, vii) for ki, vii in zip(k, vi))
             return (k * vi).integrate(
-                weight=self._weight,
                 method=self.integration.method,
                 n_points=self.integration.n_points,
             )
@@ -171,7 +170,6 @@ class LinearFormKernel(LinearForm):
             if not isinstance(v, Function):
                 raise ValueError("Input must be a Function")
             return (self._kernel * v).integrate(
-                weight=self._weight,
                 method=self.integration.method,
                 n_points=self.integration.n_points
             )
@@ -181,28 +179,17 @@ class LinearFormKernel(LinearForm):
         """
         The kernel function representing this linear form.
 
-        If a weight function w(x) is set, returns the adjusted kernel
-        k(x)/w(x) so that ⟨kernel, f⟩_w = ⟨k/w, f⟩_w recovers the
-        original integral ∫ k(x) f(x) dx.
+        Returns the kernel as-is. (For weighted inner products the weight is
+        carried by the `WeightedLebesgue` mass operator, which folds it into the
+        kernel at `to_dual` time, so no adjustment is applied here.)
 
         Returns:
             The kernel Function (or list for direct sums), or None if
             this form was created with mapping or components.
         """
-        # Import here to avoid circular import
-        from intervalinf.core.functions import Function
-
         if self._kernel is None:
             return None
-        elif self._weight is None:
-            # No weight function - return kernel as-is
-            return self._kernel
-        else:
-            # With weight function - adjust kernel by 1/weight
-            return self._kernel * Function(
-                self.domain,
-                evaluate_callable=lambda x: 1 / self._weight(x)  # type: ignore
-            )
+        return self._kernel
 
     @property
     def components(self) -> np.ndarray:

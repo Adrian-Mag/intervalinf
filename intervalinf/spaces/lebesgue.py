@@ -10,9 +10,9 @@ the interval [a,b] with the standard inner product:
 
     ⟨u, v⟩ = ∫_a^b u(x) v(x) dx
 
-or with a weight function w(x):
-
-    ⟨u, v⟩_w = ∫_a^b u(x) v(x) w(x) dx
+For a *weighted* inner product ⟨u, v⟩_w = ∫_a^b u(x) v(x) w(x) dx, use
+`WeightedLebesgue` (in `weighted_lebesgue.py`), which realizes the weight through
+a `MassWeightedHilbertSpace` mass operator so the Riesz maps stay weight-consistent.
 
 This module provides:
 - `Lebesgue`: The main L² space class
@@ -246,7 +246,6 @@ class Lebesgue(HilbertSpace):
         /,
         *,
         basis: Optional[Union[str, list]] = None,
-        weight: Optional[Callable] = None,
         integration_config: Optional[Union[
             IntegrationConfig,
             LebesgueIntegrationConfig
@@ -270,7 +269,6 @@ class Lebesgue(HilbertSpace):
                 - str: 'none' (basis-free functional mode)
                 - list: [func1, func2, ...] (custom callable functions)
                 - None: defaults to 'none' (basis-free functional mode)
-            weight: Optional weight function w(x) for weighted L² space.
             integration_config: Hierarchical integration configuration.
                 Can be IntegrationConfig (same for all) or
                 LebesgueIntegrationConfig (per-subsystem).
@@ -294,7 +292,6 @@ class Lebesgue(HilbertSpace):
         """
         self._dim = dim
         self._function_domain = function_domain
-        self._weight = weight
 
         # Integration configuration (hierarchical)
         if integration_config is None:
@@ -677,7 +674,6 @@ class Lebesgue(HilbertSpace):
             self.dim,
             subdomain,
             basis='none',
-            weight=self._weight
         )
 
         # Copy configs
@@ -699,7 +695,6 @@ class Lebesgue(HilbertSpace):
         /,
         *,
         basis: Optional[Union[str, list]] = None,
-        weight: Optional[Callable] = None,
         dim_per_subspace: Optional[list] = None,
         basis_per_subspace: Optional[list] = None,
         integration_config: Optional[IntegrationConfig] = None,
@@ -717,7 +712,6 @@ class Lebesgue(HilbertSpace):
             function_domain: The full interval domain.
             discontinuity_points: Points where discontinuities occur.
             basis: Basis type for all subspaces.
-            weight: Weight function for inner product.
             dim_per_subspace: Optional dimensions per subspace.
             basis_per_subspace: Optional basis per subspace.
             integration_config: Integration config for all subspaces.
@@ -773,7 +767,7 @@ class Lebesgue(HilbertSpace):
         # Create subspaces
         subspaces = [
             cls(
-                d, subdomain, basis=b, weight=weight,
+                d, subdomain, basis=b,
                 integration_config=integration_config,
                 parallel_config=parallel_config
             )
@@ -932,7 +926,6 @@ class Lebesgue(HilbertSpace):
             return product.integrate(
                 method=method,
                 n_points=self.integration_npoints,
-                weight=self._weight
             )
 
         spec = RepresentationSpec(
@@ -945,12 +938,6 @@ class Lebesgue(HilbertSpace):
         v_materialized = v.materialize(spec)
         integrand = u_materialized.values * v_materialized.values
 
-        if self._weight is not None:
-            integrand = integrand * self._evaluate_array_callable(
-                self._weight,
-                u_materialized.grid,
-            )
-
         return float(
             self._integrate_fixed_grid(
                 integrand,
@@ -958,24 +945,6 @@ class Lebesgue(HilbertSpace):
                 method,
             )
         )
-
-    @staticmethod
-    def _evaluate_array_callable(
-        callable_obj: Callable,
-        grid: np.ndarray,
-    ) -> np.ndarray:
-        """Evaluate a scalar or vectorized callable on a fixed grid."""
-        try:
-            values = np.asarray(callable_obj(grid), dtype=float)
-            if values.shape == grid.shape:
-                return values
-            if values.shape == ():
-                return np.full_like(grid, float(values), dtype=float)
-            if values.ndim == 1 and values.size == grid.size:
-                return values.reshape(grid.shape)
-            raise ValueError("callable returned incompatible shape")
-        except Exception:
-            return np.asarray([callable_obj(x) for x in grid], dtype=float)
 
     @staticmethod
     def _integrate_fixed_grid(
@@ -1285,7 +1254,6 @@ class PartitionedLebesgueSpace:
             ParallelConfig,
             LebesgueParallelConfig
         ]] = None,
-        weight: Optional[Callable] = None,
     ):
         """Initialize a PartitionedLebesgueSpace."""
         self.full_domain = full_domain
@@ -1316,7 +1284,7 @@ class PartitionedLebesgueSpace:
             self.unknown_intervals, dims, region_bases
         ):
             space = Lebesgue(
-                dim, interval, basis=region_basis, weight=weight,
+                dim, interval, basis=region_basis,
                 integration_config=integration_config,
                 parallel_config=parallel_config,
             )

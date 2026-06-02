@@ -120,7 +120,8 @@ def compute_spectral_coefficients_slow(
     integration_method: str,
     integration_points: int,
     scale_func: Optional[Callable[[int, float], float]] = None,
-    skip_zero_eigenvalues: bool = False
+    skip_zero_eigenvalues: bool = False,
+    inner_product: Optional[Callable[[Function, Function], float]] = None,
 ) -> List[Tuple[float, Function]]:
     """
     Compute eigenfunction expansion terms using numerical integration.
@@ -128,6 +129,14 @@ def compute_spectral_coefficients_slow(
     This is the "slow" path for Robin BCs and other cases where fast
     transforms aren't available. Used in Laplacian, InverseLaplacian,
     and Bessel operators.
+
+    The spectral coefficient is the projection of *f* onto each eigenfunction.
+    By default this is the plain (unweighted) L² projection
+    ``∫ φ_i(r) f(r) dr``.  Pass ``inner_product`` (typically the domain's
+    ``space.inner_product``) to project under a weighted/mass inner product —
+    required when the eigenfunctions are orthonormal with respect to a weighted
+    space (e.g. the radial Laplacian on a ``WeightedLebesgue`` with w(r)=r²),
+    so that the functional calculus correctly isolates each eigencomponent.
 
     Args:
         operator: Operator instance (needs get_eigenvalue,
@@ -140,6 +149,8 @@ def compute_spectral_coefficients_slow(
                    If None, uses eigenvalue directly
         skip_zero_eigenvalues: If True, skip terms with |eigenvalue| < 1e-14
                               (useful for InverseLaplacian)
+        inner_product: Optional ``(φ_i, f) -> float`` projection. ``None`` ⇒
+            plain unweighted L² via numerical integration.
 
     Returns:
         List of (scaled_coefficient, eigenfunction) tuples
@@ -163,11 +174,15 @@ def compute_spectral_coefficients_slow(
 
         eigfunc = operator.get_eigenfunction(i)
 
-        # Compute coefficient via numerical integration
-        coeff = (f * eigfunc).integrate(
-            method=integration_method,
-            n_points=integration_points
-        )
+        # Project f onto φ_i. Use the supplied (possibly weighted) inner product
+        # when given; otherwise the plain L² integral ∫ φ_i f dr.
+        if inner_product is not None:
+            coeff = inner_product(eigfunc, f)
+        else:
+            coeff = (f * eigfunc).integrate(
+                method=integration_method,
+                n_points=integration_points,
+            )
 
         # Apply scaling
         if scale_func is not None:

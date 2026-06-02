@@ -33,6 +33,7 @@ from intervalinf.spaces.sobolev import (
     Sobolev,
     SobolevSpaceDirectSum,
 )
+from intervalinf.spaces.weighted_lebesgue import WeightedLebesgue
 
 __all__ = [
     # Forms
@@ -44,6 +45,8 @@ __all__ = [
     "LebesgueParallelConfig",
     "KnownRegion",
     "PartitionedLebesgueSpace",
+    # Weighted Lebesgue (unified weighting via MassWeightedHilbertSpace)
+    "WeightedLebesgue",
     # Sobolev
     "Sobolev",
     "SobolevSpaceDirectSum",

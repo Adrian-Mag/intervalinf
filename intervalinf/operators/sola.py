@@ -11,7 +11,7 @@ from typing import Union, Optional, List, Callable, TYPE_CHECKING
 
 import numpy as np
 
-from pygeoinf.hilbert_space import EuclideanSpace
+from pygeoinf.hilbert_space import EuclideanSpace, MassWeightedHilbertSpace
 from pygeoinf.linear_operators import LinearOperator
 
 from ..spaces.lebesgue import Lebesgue
@@ -820,6 +820,52 @@ class SOLAOperator(LinearOperator):
             return np.empty((0, mesh.size))
         return np.stack(rows, axis=0)
 
+    # ------------------------------------------------------------------
+    # Mass-weighted adjoint support
+    # ------------------------------------------------------------------
+    # The SOLA adjoint satisfies G*(y) = R_M⁻¹(Σ_i y_i k_i), where R_M⁻¹ is the
+    # inverse Riesz map of the model space. For a plain L² domain R_M⁻¹ = I and
+    # the kernels themselves are the adjoint representers; for a
+    # MassWeightedHilbertSpace domain (e.g. WeightedLebesgue with w=r²) the
+    # adjoint representer of k_i is M⁻¹(k_i). Gram/cross-Gram assemblies that
+    # contract a kernel table against the adjoint must therefore use the
+    # *adjoint kernel* M⁻¹(k_i) on one side; otherwise they silently compute the
+    # plain-L² result. The forward map and the operator's generic `.adjoint`
+    # (via `domain.from_dual`) are already correct on weighted domains.
+
+    @property
+    def _is_mass_weighted_domain(self) -> bool:
+        return isinstance(self._domain, MassWeightedHilbertSpace)
+
+    def _adjoint_kernel(self, index: int) -> Function:
+        """Return the adjoint representer M⁻¹(k_index) for the model space.
+
+        Equals k_index when the domain is a plain (identity-Riesz) space.
+        """
+        kernel = self.get_kernel(index)
+        if not self._is_mass_weighted_domain:
+            return kernel
+        return self._domain.inverse_mass_operator(kernel)
+
+    def _build_adjoint_kernel_matrix(
+        self,
+        xs: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """Dense table whose rows are the adjoint representers M⁻¹(k_i) on *xs*.
+
+        For a plain L² domain this is exactly :meth:`_build_kernel_matrix`.
+        """
+        if not self._is_mass_weighted_domain:
+            return self._build_kernel_matrix(xs)
+        mesh = self._get_or_build_mesh() if xs is None else np.asarray(xs)
+        rows = [
+            np.asarray(self._eval_on_mesh(self._adjoint_kernel(i), mesh))
+            for i in range(self.N_d)
+        ]
+        if not rows:
+            return np.empty((0, mesh.size))
+        return np.stack(rows, axis=0)
+
     def _build_quadrature_weights(
         self,
         xs: Optional[np.ndarray] = None,
@@ -888,13 +934,11 @@ class SOLAOperator(LinearOperator):
         xs = self._get_or_build_mesh()
         weights = self._build_quadrature_weights(xs)
         kernel_matrix = self._build_kernel_matrix(xs)
-        # TODO(mass-weighted): currently computes (G G*)_{ij} = integral(k_i k_j dx),
-        # which is correct only for a flat L² domain.  For MassWeightedHilbertSpace
-        # with mass M the adjoint satisfies G*(y) = M^{-1}(sum y_i k_i), so the
-        # correct formula is integral(k_i (M^{-1} k_j) dx).  Fix: replace the
-        # right-hand kernel_matrix with an "adjoint kernel matrix" whose rows are
-        # M^{-1}(k_j) evaluated on xs.  See discussion 2026-05-19.
-        return (kernel_matrix * weights[np.newaxis, :]) @ kernel_matrix.T
+        # (G G*)_{ij} = ∫ k_i (M⁻¹ k_j) dx. The right-hand factor uses the
+        # adjoint kernel matrix (rows M⁻¹(k_j)); for a plain L² domain M⁻¹=I so
+        # this reduces to ∫ k_i k_j dx.
+        adjoint_kernel_matrix = self._build_adjoint_kernel_matrix(xs)
+        return (kernel_matrix * weights[np.newaxis, :]) @ adjoint_kernel_matrix.T
 
     def _compute_cross_gram_matrix_slow(
         self,
@@ -910,6 +954,8 @@ class SOLAOperator(LinearOperator):
             kernel_i = self.get_kernel(i)
             for j in range(other.N_d):
                 kernel_j = other.get_kernel(j)
+                # (T G*)_{ij} = ∫ t_i (M⁻¹ k_j) dx using `other`'s model-space M⁻¹.
+                adjoint_kernel_j = other._adjoint_kernel(j)
 
                 intersected_support = Function._intersect_supports(
                     kernel_i.support,
@@ -918,7 +964,7 @@ class SOLAOperator(LinearOperator):
                 if intersected_support == []:
                     continue
 
-                def product_callable(x, _ki=kernel_i, _kj=kernel_j):
+                def product_callable(x, _ki=kernel_i, _kj=adjoint_kernel_j):
                     return _ki.evaluate(x) * _kj.evaluate(x)
 
                 cross_gram[i, j] = domain.integrate(
@@ -962,15 +1008,12 @@ class SOLAOperator(LinearOperator):
         xs = self._get_or_build_mesh()
         weights = self._build_quadrature_weights(xs, method=self.integration.method)
         left_kernel_matrix = self._build_kernel_matrix(xs)
-        right_kernel_matrix = other._build_kernel_matrix(xs)
-        # TODO(mass-weighted): currently computes (T G*)_{ij} = integral(t_i k_j dx).
-        # For a MassWeightedHilbertSpace domain on `other`, the adjoint G*(y) =
-        # M^{-1}(sum y_j k_j), so the correct formula is integral(t_i (M^{-1} k_j) dx).
-        # Fix: replace right_kernel_matrix with other's adjoint kernel matrix
-        # (rows = M^{-1}(k_j) on xs).  See discussion 2026-05-19.
+        # (T G*)_{ij} = ∫ t_i (M⁻¹ k_j) dx, where M is `other`'s model-space mass.
+        # other's adjoint kernel matrix has rows M⁻¹(k_j) (= k_j for plain L²).
+        right_adjoint_kernel_matrix = other._build_adjoint_kernel_matrix(xs)
         return (
             left_kernel_matrix * weights[np.newaxis, :]
-        ) @ right_kernel_matrix.T
+        ) @ right_adjoint_kernel_matrix.T
 
     def compute_gram_matrix(self) -> np.ndarray:
         """
@@ -995,6 +1038,10 @@ class SOLAOperator(LinearOperator):
             kernel_i = self.get_kernel(i)
             for j in range(self.N_d):
                 kernel_j = self.get_kernel(j)
+                # (G G*)_{ij} = ∫ k_i (M⁻¹ k_j) dx; M⁻¹=I for a plain domain.
+                # M⁻¹ by a positive weight preserves the support of k_j, so the
+                # support intersection below stays valid.
+                adjoint_kernel_j = self._adjoint_kernel(j)
 
                 intersected_support = Function._intersect_supports(
                     kernel_i.support, kernel_j.support
@@ -1002,7 +1049,7 @@ class SOLAOperator(LinearOperator):
                 if intersected_support == []:
                     continue  # gram[i, j] already 0.0
 
-                def product_callable(x, _ki=kernel_i, _kj=kernel_j):
+                def product_callable(x, _ki=kernel_i, _kj=adjoint_kernel_j):
                     return _ki.evaluate(x) * _kj.evaluate(x)
 
                 gram[i, j] = domain.integrate(

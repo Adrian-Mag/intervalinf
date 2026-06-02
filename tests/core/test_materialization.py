@@ -139,30 +139,37 @@ def test_clear_materializations():
 
 
 def test_inner_product_with_materialization_matches_original():
+    # Weighted inner product is now provided by WeightedLebesgue (mass operator),
+    # not a Lebesgue(weight=) argument. The materialized fast path runs inside the
+    # underlying plain space; the result must still match the manual weighted
+    # integral.
+    from intervalinf.spaces.weighted_lebesgue import WeightedLebesgue
+
     domain = IntervalDomain(0.0, 1.0)
-    space = Lebesgue(
+    w = lambda x: 1.0 + np.asarray(x)
+    space = WeightedLebesgue(
         0,
         domain,
+        w,
         integration_config=IntegrationConfig(method="trapz", n_points=501),
-        weight=lambda x: 1.0 + np.asarray(x),
     )
     u = Function(
-        space,
+        space.function_domain,
         evaluate_callable=lambda x: (
             np.sin(np.pi * np.asarray(x)) + np.asarray(x)
         ),
     )
     v = Function(
-        space,
+        space.function_domain,
         evaluate_callable=lambda x: (
             np.cos(np.pi * np.asarray(x)) + np.asarray(x) ** 2
         ),
     )
 
     expected = (u * v).integrate(
-        method=space.integration_method,
-        n_points=space.integration_npoints,
-        weight=space._weight,
+        method="trapz",
+        n_points=501,
+        weight=w,
     )
     actual = space.inner_product(u, v)
 
