@@ -292,6 +292,7 @@ class TunerApp:
             f,
             text="Weighted L²(r²) + RadialLaplacian",
             variable=self._weighted_var,
+            command=self._on_weighted_toggle,
         ).grid(row=row, column=0, columnspan=3, sticky="w")
         row += 1
         ttk.Label(
@@ -572,9 +573,12 @@ class TunerApp:
         v_tau = tk.DoubleVar(value=_DEFAULT_TAUS[p])
         cv["tau"] = v_tau
         v_tau.trace_add("write", lambda *_: self.root.after(0, self._redraw_prior))
-        row = self._add_slider(f, row, f"  τ_{p}:", v_tau,
-                               lo=0.0, hi=10.0, res=0.05, fmt="{:.2f}",
-                               indent=True)
+        row, tau_scale, tau_lbl = self._add_slider_with_ref(
+            f, row, f"  τ_{p}:", v_tau,
+            lo=0.0, hi=10.0, res=0.05, fmt="{:.2f}",
+            indent=True)
+        cv["tau_scale"] = tau_scale
+        cv["tau_lbl"]   = tau_lbl
 
         self._ctrl[p] = cv
         return row
@@ -585,6 +589,15 @@ class TunerApp:
         indent: bool = False,
     ) -> int:
         """Add label + Scale + value display.  Returns next row."""
+        row, _, _ = self._add_slider_with_ref(f, row, label, var, lo, hi, res, fmt, indent)
+        return row
+
+    def _add_slider_with_ref(
+        self, f: ttk.Frame, row: int, label: str,
+        var: tk.DoubleVar, lo: float, hi: float, res: float, fmt: str,
+        indent: bool = False,
+    ):
+        """Like _add_slider but also returns (row, Scale_widget, value_Label)."""
         pad_l = 12 if indent else 0
         ttk.Label(f, text=label).grid(
             row=row, column=0, sticky="w", padx=(pad_l, 0))
@@ -597,7 +610,7 @@ class TunerApp:
                       length=165, bd=0, sliderrelief=tk.FLAT)
         sl.grid(row=row, column=1, sticky="w", padx=4, pady=1)
         val_lbl.grid(row=row, column=2, sticky="w")
-        return row + 1
+        return row + 1, sl, val_lbl
 
     def _add_log_slider(
         self, f: ttk.Frame, row: int, label: str,
@@ -699,6 +712,34 @@ class TunerApp:
             parallel_cfg=ParallelConfig(enabled=n_jobs > 1, n_jobs=n_jobs),
             weighted=bool(self._weighted_var.get()),
         )
+
+    # ── Weighted toggle ───────────────────────────────────────────────────────
+
+    # Tau slider config per mode: (lo, hi, resolution, fmt, default)
+    _TAU_FLAT     = (0.0,     10.0,  0.05,  "{:.2f}",  1.0)
+    _TAU_WEIGHTED = (0.0,  30000.0, 100.0,  "{:.0f}",  3000.0)
+
+    def _on_weighted_toggle(self) -> None:
+        """Reconfigure τ sliders when switching between flat and weighted modes."""
+        weighted = self._weighted_var.get()
+        lo, hi, res, fmt, default = (
+            self._TAU_WEIGHTED if weighted else self._TAU_FLAT
+        )
+        for p in _PARAMS:
+            cv  = self._ctrl[p]
+            sl  = cv["tau_scale"]
+            lbl = cv["tau_lbl"]
+            var = cv["tau"]
+            # Remove existing traces so we don't accumulate stale callbacks
+            for tid in var.trace_info():
+                var.trace_remove(tid[0], tid[1])
+            # Reconfigure slider range and reset to mode-appropriate default
+            sl.configure(from_=lo, to=hi, resolution=res)
+            var.set(default)
+            lbl.configure(text=fmt.format(default))
+            # Re-add traces with updated format string (captured by default arg)
+            var.trace_add("write", lambda *_, _v=var, _f=fmt, _l=lbl: _l.config(text=_f.format(_v.get())))
+            var.trace_add("write", lambda *_: self.root.after(0, self._redraw_prior))
 
     # ── Compute mode callbacks ────────────────────────────────────────────────
 
