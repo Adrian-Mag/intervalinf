@@ -31,7 +31,10 @@ class SpectralOperator(LinearOperator, ABC):
         self,
         domain,
         codomain,
-        mapping
+        mapping,
+        *,
+        adjoint_mapping=None,
+        dual_mapping=None,
     ):
         """
         Initialize spectral operator.
@@ -40,8 +43,18 @@ class SpectralOperator(LinearOperator, ABC):
             domain: Input function space
             codomain: Output function space
             mapping: The operator mapping function
+            adjoint_mapping: Optional adjoint action. Supplying this is
+                important for function-space covariance operators where the
+                default finite-component adjoint is not appropriate.
+            dual_mapping: Optional dual action.
         """
-        super().__init__(domain, codomain, mapping)
+        super().__init__(
+            domain,
+            codomain,
+            mapping,
+            adjoint_mapping=adjoint_mapping,
+            dual_mapping=dual_mapping,
+        )
 
     @abstractmethod
     def get_eigenvalue(self, index: int) -> float:

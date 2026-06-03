@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "description": "Function-space prior candidates for the normal-mode tuner. Dense matrices are diagnostic projections only; priors should be built as pygeoinf GaussianMeasure covariances on intervalinf spaces.",
+  "baseline_reference": "intervalinf/work/prior-posterior-audit/FINAL_REPORT.md",
+  "candidates": [
+    {
+      "name": "loose_bessel_order2_length033",
+      "family": "bessel_sobolev_inverse",
+      "purpose": "Less restrictive Bessel prior: lower smoothness and shorter length scale.",
+      "n_basis": [80, 120],
+      "components": {
+        "vp": {"s_order": 2.0, "length": 80.0, "variance": 1000.0, "bc": "mixed_neumann_dirichlet"},
+        "vs_IC": {"s_order": 2.0, "length": 45.0, "variance": 1000.0, "bc": "neumann"},
+        "vs_M": {"s_order": 2.0, "length": 60.0, "variance": 50.0, "bc": "mixed_neumann_dirichlet"},
+        "rho": {"s_order": 2.0, "length": 80.0, "variance": 50.0, "bc": "mixed_neumann_dirichlet"}
+      }
+    },
+    {
+      "name": "moderate_bessel_order3_length05",
+      "family": "bessel_sobolev_inverse",
+      "purpose": "Conservative loosening: smoother than order-2 but broader than the baseline.",
+      "n_basis": [80, 120],
+      "components": {
+        "vp": {"s_order": 3.0, "length": 105.0, "variance": 1000.0, "bc": "mixed_neumann_dirichlet"},
+        "vs_IC": {"s_order": 3.0, "length": 58.0, "variance": 1000.0, "bc": "neumann"},
+        "vs_M": {"s_order": 3.0, "length": 70.0, "variance": 50.0, "bc": "mixed_neumann_dirichlet"},
+        "rho": {"s_order": 3.0, "length": 100.0, "variance": 50.0, "bc": "mixed_neumann_dirichlet"}
+      }
+    },
+    {
+      "name": "trace_class_power_law_rough",
+      "family": "spectral_power_law",
+      "purpose": "Generic trace-class covariance with slower spectral decay than the baseline Bessel family.",
+      "n_basis": [80, 120],
+      "components": {
+        "vp": {"decay_order": 1.2, "length": 80.0, "variance": 1000.0, "bc": "mixed_neumann_dirichlet"},
+        "vs_IC": {"decay_order": 1.2, "length": 45.0, "variance": 1000.0, "bc": "neumann"},
+        "vs_M": {"decay_order": 1.2, "length": 60.0, "variance": 50.0, "bc": "mixed_neumann_dirichlet"},
+        "rho": {"decay_order": 1.2, "length": 80.0, "variance": 50.0, "bc": "mixed_neumann_dirichlet"}
+      }
+    },
+    {
+      "name": "smooth_plus_rough_mixture",
+      "family": "mixture",
+      "purpose": "Keep a smooth Earth-like component but add a lower-weight rough component so data-visible directions are not assigned near-zero prior variance.",
+      "n_basis": [80, 120],
+      "weights": {"smooth": 0.7, "rough": 0.3},
+      "smooth_component": "baseline_bessel",
+      "rough_component": "loose_bessel_order2_length033"
+    }
+  ],
+  "required_metrics": [
+    "chi_rms",
+    "posterior_roughness",
+    "probe_contraction",
+    "rank_eff_GCGt",
+    "median_information_ratio",
+    "n_directions_contraction_gt_95",
+    "basis_refinement_delta"
+  ]
+}

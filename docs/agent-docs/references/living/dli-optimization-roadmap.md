@@ -200,7 +200,7 @@ Run these after each workstream implementation to confirm acceptance criteria:
 
 **After Workstream 1 (Targets A + C):**
 ```bash
-conda run -n inferences3 python intervalinf/rough_work/benchmark_dli_oracle_bundle.py
+conda run -n inferences python intervalinf/rough_work/benchmark_dli_oracle_bundle.py
 ```
 Artifacts produced: `benchmark_dli_oracle_bundle_oracle.csv`,
 `benchmark_dli_oracle_bundle_bundle.csv`, `benchmark_dli_oracle_bundle_warmstart.csv`.
@@ -212,7 +212,7 @@ Columns to check:
 
 **After Workstream 2 (Target B):**
 ```bash
-conda run -n inferences3 python intervalinf/rough_work/benchmark_phase2_compact_support.py
+conda run -n inferences python intervalinf/rough_work/benchmark_phase2_compact_support.py
 ```
 Artifact: `benchmark_phase2_compact_support_results.csv`.
 
@@ -221,7 +221,7 @@ Acceptance: `wall_ms_median` ≤ 2× the `full_domain` row with the same $N_d$/$
 
 **After both workstreams (regression check):**
 ```bash
-conda run -n inferences3 python -m pytest intervalinf/tests/ pygeoinf/tests/ -x -q
+conda run -n inferences python -m pytest intervalinf/tests/ pygeoinf/tests/ -x -q
 ```
 
 ---

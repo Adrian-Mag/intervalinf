@@ -1,8 +1,9 @@
 """
 Smoke tests for full_spectrum_viz — Phase 7 (Visualisation and Reporting).
 
-Three tests:
+Four tests:
     test_plot_block_posterior_returns_figure
+    test_plot_block_posterior_uses_posterior_sigma_1_std
     test_plot_cmb_map_returns_figure
     test_plot_equatorial_slice_gated_off_by_default
 """
@@ -11,7 +12,9 @@ import sys
 import os
 
 # Ensure paper_demos directory is on path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+_TEST_DIR = os.path.dirname(__file__)
+sys.path.insert(0, os.path.join(_TEST_DIR, "../utils"))
+sys.path.insert(0, os.path.join(_TEST_DIR, "../visualization"))
 
 import numpy as np
 import pytest
@@ -34,7 +37,7 @@ from full_spectrum_utils import (
 
 # ─── helpers for building tiny synthetic setups ──────────────────────────────
 
-def _make_synthetic_posterior_for_block_plot(n_basis=5):
+def _make_synthetic_posterior_for_block_plot(n_basis=5, *, sigma_var=100.0):
     """
     Build a self-contained (block, posterior, forward_dict, specs) without
     loading any external data files.
@@ -55,7 +58,7 @@ def _make_synthetic_posterior_for_block_plot(n_basis=5):
         parallel_cfg=ParallelConfig(enabled=False, n_jobs=1),
     )
     shared = build_shared_bessel_blocks(specs)
-    prior = build_block_prior(block.s, block.t, shared, specs)
+    prior = build_block_prior(block.s, block.t, shared, specs, sigma_var=sigma_var)
 
     # The prior's domain IS M_st — use it as a stand-in for the forward_dict
     # entry.  plot_block_posterior only reads M_st to get component subspaces.
@@ -123,6 +126,23 @@ def test_plot_block_posterior_returns_figure():
     assert len(fig.axes) >= 4, (
         f"Expected at least 4 axes panels, got {len(fig.axes)}"
     )
+    import matplotlib.pyplot as plt
+    plt.close(fig)
+
+
+def test_plot_block_posterior_uses_posterior_sigma_1_std():
+    """sigma_1 panel should report posterior, not fallback prior, uncertainty."""
+    block, posterior, forward_dict, specs = _make_synthetic_posterior_for_block_plot(
+        n_basis=5,
+        sigma_var=9.0,
+    )
+
+    fig = plot_block_posterior(block, posterior, forward_dict, specs, n_grid=30)
+
+    legend = fig.axes[4].get_legend()
+    labels = [text.get_text() for text in legend.get_texts()]
+    assert any("±σ_post = 3.00" in label for label in labels), labels
+
     import matplotlib.pyplot as plt
     plt.close(fig)
 

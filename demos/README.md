@@ -32,7 +32,7 @@ convex-analysis inversion stack.
 Ensure you have `intervalinf` and `pygeoinf` installed:
 
 ```bash
-conda activate inferences3
+conda activate inferences
 # or: pip install -e /path/to/intervalinf -e /path/to/pygeoinf
 ```
 

@@ -4,7 +4,7 @@ import sys
 import os
 
 # Ensure paper_demos is on path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../utils"))
 
 import numpy as np
 import pytest
@@ -369,17 +369,17 @@ def test_solve_all_blocks_parallel_matches_serial():
 # =============================================================================
 
 from full_spectrum_utils import build_property_operator, assemble_property_posterior
-from property_targets import BulkTarget, CMBTarget
+from property_targets import CapBulkTarget, CapCMBTarget
 
 
 def _make_phase6_setup(n_radial=100):
     """Build property_op_dict, posterior_dict, and prior_dict for Phase 6 tests."""
     targets = [
-        BulkTarget(
+        CapBulkTarget(
             param='vp', lat_deg=10.0, lon_deg=210.0,
-            sigma_ang_deg=20.0, r0_km=4500.0, sigma_r_km=300.0,
+            cap_radius_deg=20.0, r0_km=4500.0, width_km=400.0,
         ),
-        CMBTarget(lat_deg=0.0, lon_deg=0.0, sigma_ang_deg=20.0),
+        CapCMBTarget(lat_deg=0.0, lon_deg=0.0, cap_radius_deg=20.0),
     ]
     blocks, forward_dict, prior_dict, split = _make_phase4_setup(s_max=2, n_basis=20)
     posterior_dict = solve_all_blocks(forward_dict, prior_dict, split, n_jobs=1)

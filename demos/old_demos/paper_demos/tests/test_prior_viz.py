@@ -12,7 +12,9 @@ import sys
 import os
 
 # Ensure paper_demos directory is on path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+_TEST_DIR = os.path.dirname(__file__)
+sys.path.insert(0, os.path.join(_TEST_DIR, "../utils"))
+sys.path.insert(0, os.path.join(_TEST_DIR, "../visualization"))
 
 import numpy as np
 import pytest
@@ -105,6 +107,7 @@ def test_prior_viewer_resample_changes_samples(tiny_setup):
     viewer.precompute()
 
     samples_before = viewer._ref_data["vp"].ref_samples.copy()
+    std_before = viewer._ref_data["vp"].ref_std.copy()
 
     viewer.resample(seed=99)
 
@@ -118,3 +121,62 @@ def test_prior_viewer_resample_changes_samples(tiny_setup):
     viewer_ref.precompute()
     np.testing.assert_allclose(data_after.ref_std, viewer_ref._ref_data["vp"].ref_std,
                                 rtol=1e-12, err_msg="resample() must not change ref_std")
+
+
+# ─── Phase 2 tests ────────────────────────────────────────────────────────
+
+def test_render_prior_figure_returns_figure(tiny_setup):
+    """_render_prior_figure returns a Figure with 4 axes."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.figure
+    from prior_viz import _render_prior_figure
+
+    shared, specs = tiny_setup
+    viewer = PriorViewer(shared, specs, n_grid=20, n_samples=3)
+    viewer.precompute()
+
+    block = BlockIndex(s=1, t=0)
+    display_data = viewer.get_display_data(block)
+    fig = _render_prior_figure(display_data, block, specs)
+
+    assert isinstance(fig, matplotlib.figure.Figure), "Expected a matplotlib Figure"
+    assert len(fig.axes) == 4, f"Expected 4 axes, got {len(fig.axes)}"
+    import matplotlib.pyplot as plt
+    plt.close(fig)
+
+
+def test_make_prior_widget_returns_widget(tiny_setup):
+    """make_prior_widget returns an ipywidgets widget."""
+    import ipywidgets as widgets
+    from prior_viz import make_prior_widget
+
+    shared, specs = tiny_setup
+    blocks = [BlockIndex(s=0, t=0), BlockIndex(s=1, t=0)]
+    viewer = PriorViewer(shared, specs, n_grid=20, n_samples=3)
+    # widget should not require precompute upfront (user presses button)
+    widget = make_prior_widget(viewer, blocks, specs)
+
+    assert isinstance(widget, widgets.Widget), "Expected an ipywidgets Widget"
+
+
+def test_matplotlib_prior_viewer_precompute_redraws(tiny_setup):
+    """MatplotlibPriorViewer precomputes and renders the selected block."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.widgets import Button, Slider
+    from prior_viz import MatplotlibPriorViewer
+
+    shared, specs = tiny_setup
+    blocks = [BlockIndex(s=0, t=0), BlockIndex(s=2, t=1)]
+    viewer = PriorViewer(shared, specs, n_grid=20, n_samples=3)
+    panel = MatplotlibPriorViewer(viewer, blocks, specs, plt, Button, Slider)
+
+    panel.precompute()
+
+    assert viewer.is_precomputed, "Expected precompute() to populate the cache"
+    assert panel.current_block == blocks[0], "Expected the initial block to be selected"
+    assert panel.axes[0].has_data(), "Expected the first radial axis to contain plotted data"
+    assert "Ready" in panel.status_text.get_text(), "Expected a ready status message after redraw"
+    plt.close(panel.fig)

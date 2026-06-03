@@ -1,0 +1,43 @@
+{
+  "task": "inference",
+  "n_basis": 50,
+  "s_max": 6,
+  "hyper": {
+    "vp": {
+      "s_order": 6.0,
+      "length": 20.0,
+      "var": 10.0,
+      "bc": "mixed_neumann_dirichlet"
+    },
+    "vs_IC": {
+      "s_order": 4.0,
+      "length": 20.0,
+      "var": 10.0,
+      "bc": "neumann"
+    },
+    "vs_M": {
+      "s_order": 4.0,
+      "length": 20.0,
+      "var": 10.0,
+      "bc": "mixed_neumann_dirichlet"
+    },
+    "rho": {
+      "s_order": 5.0,
+      "length": 25.0,
+      "var": 10.0,
+      "bc": "mixed_neumann_dirichlet"
+    }
+  },
+  "taus": {
+    "vp": 1.0,
+    "vs_IC": 1.0,
+    "vs_M": 1.0,
+    "rho": 1.0
+  },
+  "sigma_var": 100.0,
+  "data_noise_multiplier": 1.0,
+  "n_jobs": 12,
+  "n_grid": 300,
+  "n_probes": 15,
+  "data_mode": "real"
+}
