@@ -1253,6 +1253,11 @@ class TunerApp:
         # depend on the prior and are left intact.
         self._block_posteriors.clear()
         self._block_keys.clear()
+        # Forward operators must also be cleared: when weighted mode changes,
+        # the model space type changes (plain Lebesgue ↔ WeightedLebesgue),
+        # which changes the adjoint. A stale flat-mode forward paired with a
+        # weighted-mode prior causes domain mismatch in the posterior solve.
+        self._forward_dict.clear()
         self._lbl_build.config(text="Status: ✓ prior built", foreground="green")
         self._btn_compute.state(["!disabled"])
         self._btn_compute_all.state(["!disabled"])
