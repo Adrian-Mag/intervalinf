@@ -24,7 +24,7 @@ from numpy.testing import assert_allclose
 
 from pygeoinf.gaussian_measure import GaussianMeasure
 from pygeoinf.hilbert_space import EuclideanSpace
-from pygeoinf.matrix_function import apply_matrix_function
+from pygeoinf.functional_calculus import apply_operator_function
 
 from intervalinf.core.boundary import BoundaryConditions
 from intervalinf.core.domain import IntervalDomain
@@ -171,7 +171,7 @@ def test_weakened_ellipsoid_lanczos_vs_spectral():
         spectrum=spec,
         spectrum_size=200,
         fractional_apply="lanczos",
-        n_lanczos=n_lanczos,
+        lanczos_size_estimate=n_lanczos,
     )
     assert ellipsoid.radius > 0.0
 
@@ -181,8 +181,8 @@ def test_weakened_ellipsoid_lanczos_vs_spectral():
     lambda0 = cov.get_eigenvalue(0)
 
     # C^{-theta} f_0  (matches the operator returned by the planner)
-    g = apply_matrix_function(
-        cov, f0, lambda x: np.power(x, -theta), n_lanczos
+    g = apply_operator_function(
+        cov, f0, lambda x: np.power(x, -theta), n_lanczos, method="fixed"
     )
 
     # Project onto f_0 via the L2 inner product.
@@ -219,7 +219,7 @@ def test_sobolev_weakened_ellipsoid():
         spectrum=spec,
         spectrum_size=200,
         fractional_apply="lanczos",
-        n_lanczos=50,
+        lanczos_size_estimate=50,
     )
     assert ellipsoid.radius > 0.0
     assert np.isfinite(ellipsoid.radius)
