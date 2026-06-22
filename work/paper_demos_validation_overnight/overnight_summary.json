@@ -1,0 +1,64 @@
+{
+  "dry_run": false,
+  "resume": true,
+  "status": "complete",
+  "tasks": [
+    {
+      "config_path": "/disks/data/PhD/Inferences/intervalinf/demos/old_demos/paper_demos/configs/paper_validation_rich_flat.toml",
+      "duration_seconds": 409.0097323814407,
+      "kind": "single",
+      "name": "rich_flat",
+      "run_dir": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_validation_overnight/single_runs/paper_validation_rich_flat__63e3571d1668",
+      "status": "complete"
+    },
+    {
+      "config_path": "/disks/data/PhD/Inferences/intervalinf/demos/old_demos/paper_demos/configs/paper_validation_rich_weighted.toml",
+      "duration_seconds": 306.6150427982211,
+      "kind": "single",
+      "name": "rich_weighted",
+      "run_dir": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_validation_overnight/single_runs/paper_validation_rich_weighted__7015796f7903",
+      "status": "complete"
+    },
+    {
+      "config_path": "/disks/data/PhD/Inferences/intervalinf/demos/old_demos/paper_demos/configs/paper_validation_bc_flat.toml",
+      "duration_seconds": 32.99093405995518,
+      "kind": "single",
+      "name": "bc_flat",
+      "run_dir": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_validation_overnight/single_runs/paper_validation_bc_flat__faaa29ae1940",
+      "status": "complete"
+    },
+    {
+      "config_path": "/disks/data/PhD/Inferences/intervalinf/demos/old_demos/paper_demos/configs/paper_validation_bc_weighted.toml",
+      "duration_seconds": 32.9961030241102,
+      "kind": "single",
+      "name": "bc_weighted",
+      "run_dir": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_validation_overnight/single_runs/paper_validation_bc_weighted__46dac2a52d02",
+      "status": "complete"
+    },
+    {
+      "completed": 12,
+      "config_path": "/disks/data/PhD/Inferences/intervalinf/demos/old_demos/paper_demos/configs/sweep_validation_matrix_flat.toml",
+      "duration_seconds": 1819.205922155641,
+      "failed": 0,
+      "kind": "sweep",
+      "manifest_path": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_validation_overnight/sweeps/validation_matrix_flat/manifest_local.jsonl",
+      "name": "matrix_flat",
+      "planned": 12,
+      "skipped": 0,
+      "status": "complete"
+    },
+    {
+      "completed": 12,
+      "config_path": "/disks/data/PhD/Inferences/intervalinf/demos/old_demos/paper_demos/configs/sweep_validation_matrix_weighted.toml",
+      "duration_seconds": 1829.3000486623496,
+      "failed": 0,
+      "kind": "sweep",
+      "manifest_path": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_validation_overnight/sweeps/validation_matrix_weighted/manifest_local.jsonl",
+      "name": "matrix_weighted",
+      "planned": 12,
+      "skipped": 0,
+      "status": "complete"
+    }
+  ],
+  "timestamp_utc": "2026-06-04T23:54:14Z"
+}

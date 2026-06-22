@@ -1,0 +1,39 @@
+{
+  "dry_run": false,
+  "resume": true,
+  "status": "complete",
+  "tasks": [
+    {
+      "completed": 12,
+      "duration_seconds": 9929.48394302465,
+      "failed": 0,
+      "manifest_path": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_noise_truncation_effects/sweeps/noise_truncation_flat/manifest_europa.jsonl",
+      "name": "noise_truncation_flat",
+      "planned": 12,
+      "runtime_base_config": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_noise_truncation_effects/runtime_configs/noise_truncation_flat_base.runtime.json",
+      "runtime_sweep_config": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_noise_truncation_effects/runtime_configs/noise_truncation_flat.runtime.json",
+      "skipped": 0,
+      "status": "complete",
+      "stream": "flat",
+      "template_base_config": "/disks/data/PhD/Inferences/intervalinf/demos/old_demos/paper_demos/configs/paper_noise_truncation_flat.toml",
+      "template_sweep_config": "/disks/data/PhD/Inferences/intervalinf/demos/old_demos/paper_demos/configs/sweep_noise_truncation_flat.toml"
+    },
+    {
+      "completed": 12,
+      "duration_seconds": 10338.059836768545,
+      "failed": 0,
+      "manifest_path": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_noise_truncation_effects/sweeps/noise_truncation_weighted/manifest_europa.jsonl",
+      "name": "noise_truncation_weighted",
+      "planned": 12,
+      "runtime_base_config": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_noise_truncation_effects/runtime_configs/noise_truncation_weighted_base.runtime.json",
+      "runtime_sweep_config": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_noise_truncation_effects/runtime_configs/noise_truncation_weighted.runtime.json",
+      "skipped": 0,
+      "status": "complete",
+      "stream": "weighted",
+      "template_base_config": "/disks/data/PhD/Inferences/intervalinf/demos/old_demos/paper_demos/configs/paper_noise_truncation_weighted.toml",
+      "template_sweep_config": "/disks/data/PhD/Inferences/intervalinf/demos/old_demos/paper_demos/configs/sweep_noise_truncation_weighted.toml"
+    }
+  ],
+  "timestamp_utc": "2026-06-05T09:43:36Z",
+  "worker_count": 32
+}

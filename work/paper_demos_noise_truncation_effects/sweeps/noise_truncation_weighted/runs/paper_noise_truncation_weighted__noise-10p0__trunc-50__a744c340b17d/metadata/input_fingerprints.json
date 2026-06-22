@@ -1,0 +1,16 @@
+{
+  "data_dir": {
+    "exists": true,
+    "file_count": 332,
+    "kind": "directory",
+    "path": "/disks/data/PhD/Inferences/intervalinf/demos/old_demos/paper_demos/data/normal-mode-data",
+    "total_size_bytes": 491283
+  },
+  "kernel_dir": {
+    "exists": true,
+    "file_count": 764,
+    "kind": "directory",
+    "path": "/disks/data/PhD/Inferences/intervalinf/demos/old_demos/paper_demos/data/normal-mode-kernels/kernels-all_PREM-layers_Adrian",
+    "total_size_bytes": 51468548
+  }
+}

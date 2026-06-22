@@ -1,0 +1,163 @@
+{
+  "compute": {
+    "n_jobs": 1,
+    "parallel_blocks": false,
+    "threadpool_limit": 1
+  },
+  "data": {
+    "blocks": "all",
+    "data_mode": "real",
+    "max_data_per_block": 0,
+    "mode_filter": "kernel_catalog",
+    "s_max": 4
+  },
+  "defaults": {
+    "allow_inconsistent_stream": false,
+    "stream": "flat"
+  },
+  "diagnostics": {
+    "condition_numbers": true,
+    "data_spectra": true,
+    "dense_blocks": "first",
+    "integration_refinement_compare": [],
+    "normal_operator": true,
+    "operator_timing": true,
+    "posterior_contraction": true,
+    "predictive_chi": true,
+    "prior_spectra": true,
+    "save_dense_data_covariance": true,
+    "save_dense_normal_operator": true,
+    "save_dense_property_covariance": true,
+    "truncation_refinement_compare": []
+  },
+  "integration": {
+    "lebesgue_dual": {
+      "method": "trapz",
+      "n_points": 1536
+    },
+    "lebesgue_general": {
+      "method": "trapz",
+      "n_points": 1536
+    },
+    "lebesgue_inner_product": {
+      "method": "trapz",
+      "n_points": 1536
+    },
+    "sola": {
+      "method": "trapz",
+      "n_points": 2048
+    }
+  },
+  "model_space": {
+    "cmb_radius_km": 3480.0,
+    "covariance_truncation": 80,
+    "earth_radius_km": 6371.0,
+    "icb_radius_km": 1217.5,
+    "weighted": false
+  },
+  "noise": {
+    "data_noise_multiplier": 0.75
+  },
+  "outputs": {
+    "figure_blocks": "first",
+    "figure_formats": [
+      "png"
+    ],
+    "n_covariance_probes": 6,
+    "n_grid": 160,
+    "n_posterior_samples": 0,
+    "n_prior_samples": 0,
+    "save_csv": true,
+    "save_figures": false,
+    "save_npz": true,
+    "save_reconstructed_fields": false,
+    "save_samples": false
+  },
+  "paths": {
+    "data_dir": "/disks/data/PhD/Inferences/intervalinf/demos/old_demos/paper_demos/data/normal-mode-data",
+    "kernel_dir": "/disks/data/PhD/Inferences/intervalinf/demos/old_demos/paper_demos/data/normal-mode-kernels/kernels-all_PREM-layers_Adrian"
+  },
+  "prior": {
+    "family": "bessel",
+    "hyper": {
+      "rho": {
+        "alpha": 250000.0,
+        "bc": "mixed_neumann_dirichlet",
+        "k": 1.0,
+        "s": 3.0
+      },
+      "vp": {
+        "alpha": 250000.0,
+        "bc": "mixed_neumann_dirichlet",
+        "k": 1.0,
+        "s": 3.0
+      },
+      "vs_IC": {
+        "alpha": 250000.0,
+        "bc": "neumann",
+        "k": 1.0,
+        "s": 3.0
+      },
+      "vs_M": {
+        "alpha": 250000.0,
+        "bc": "mixed_neumann_dirichlet",
+        "k": 1.0,
+        "s": 3.0
+      }
+    },
+    "sigma_var": 100.0,
+    "taus": {
+      "rho": 1.0,
+      "vp": 1.0,
+      "vs_IC": 1.0,
+      "vs_M": 1.0
+    }
+  },
+  "run": {
+    "name": "paper_validation_matrix_flat__noise-0p75__trunc-80__quad-1536",
+    "output_root": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_validation_overnight/sweeps/validation_matrix_flat/runs",
+    "overwrite": false,
+    "seed": 20260605
+  },
+  "source_path": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_validation_overnight/sweeps/validation_matrix_flat/expanded_configs/paper_validation_matrix_flat__noisem0p75__truncm80__quadm1536.json",
+  "synthetic": {
+    "noise_scale": 1.0,
+    "null_amp": 0.0,
+    "seed": 0
+  },
+  "targets": [
+    {
+      "cap_radius_deg": 15.0,
+      "lat_deg": 0.0,
+      "lon_deg": 0.0,
+      "param": "vp",
+      "r0_km": 4925.5,
+      "r_high_km": null,
+      "r_low_km": null,
+      "type": "cap_bulk",
+      "width_km": 400.0
+    },
+    {
+      "cap_radius_deg": 15.0,
+      "lat_deg": 0.0,
+      "lon_deg": 0.0,
+      "param": "vs_M",
+      "r0_km": null,
+      "r_high_km": 3780.0,
+      "r_low_km": 3480.0,
+      "type": "boxcar_bulk",
+      "width_km": null
+    },
+    {
+      "cap_radius_deg": 15.0,
+      "lat_deg": 0.0,
+      "lon_deg": 0.0,
+      "param": null,
+      "r0_km": null,
+      "r_high_km": null,
+      "r_low_km": null,
+      "type": "cap_cmb",
+      "width_km": null
+    }
+  ]
+}

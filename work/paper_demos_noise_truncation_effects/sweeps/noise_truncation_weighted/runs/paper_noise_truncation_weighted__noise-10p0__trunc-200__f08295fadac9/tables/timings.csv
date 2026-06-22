@@ -1,0 +1,7 @@
+phase,elapsed_s
+build_context,0.013601911254227161
+build_prior,0.0003434866666793823
+solve_posteriors,1365.3429617332295
+compute_property_inference,30.14570052921772
+compute_diagnostics,16.10066087450832
+write_outputs,31.14861701335758

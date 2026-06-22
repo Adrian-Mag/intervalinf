@@ -1,0 +1,5 @@
+python: 3.11.13 | packaged by conda-forge | (main, Jun  4 2025, 14:48:23) [GCC 13.3.0]
+numpy: 2.4.2
+scipy: 1.17.0
+matplotlib: 3.10.5
+pyshtools: 4.13.1

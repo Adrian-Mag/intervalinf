@@ -1,0 +1,2 @@
+quantity,n,symmetry_error_max,min_eigenvalue,max_eigenvalue,condition_number,is_finite
+property_covariance,9,0.0,-3.2755870573772504e-20,0.04554170793844064,1.2363590928013e+16,True

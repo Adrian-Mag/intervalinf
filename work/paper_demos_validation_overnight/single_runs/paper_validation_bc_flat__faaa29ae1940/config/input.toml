@@ -1,0 +1,142 @@
+[run]
+name = "paper_validation_bc_flat"
+output_root = "../../../../work/paper_demos_validation_overnight/single_runs"
+overwrite = false
+seed = 20260605
+
+[paths]
+data_dir = "../data/normal-mode-data"
+kernel_dir = "../data/normal-mode-kernels/kernels-all_PREM-layers_Adrian"
+
+[data]
+s_max = 2
+blocks = "all"
+mode_filter = "kernel_catalog"
+data_mode = "real"
+max_data_per_block = 0
+
+[synthetic]
+noise_scale = 1.0
+null_amp = 0.0
+seed = 0
+
+[defaults]
+stream = "flat"
+allow_inconsistent_stream = false
+
+[model_space]
+covariance_truncation = 20
+weighted = false
+earth_radius_km = 6371.0
+icb_radius_km = 1217.5
+cmb_radius_km = 3480.0
+
+[integration.lebesgue.inner_product]
+method = "trapz"
+n_points = 768
+
+[integration.lebesgue.dual]
+method = "trapz"
+n_points = 768
+
+[integration.lebesgue.general]
+method = "trapz"
+n_points = 768
+
+[integration.sola]
+method = "trapz"
+n_points = 1536
+
+[compute]
+n_jobs = 1
+threadpool_limit = 1
+parallel_blocks = false
+
+[prior]
+family = "bessel"
+sigma_var = 100.0
+
+[prior.taus]
+vp = 1.0
+vs_IC = 1.0
+vs_M = 1.0
+rho = 1.0
+
+[prior.hyper.vp]
+k = 1.0
+s = 3.0
+alpha = 250000.0
+bc = "dirichlet"
+
+[prior.hyper.vs_IC]
+k = 1.0
+s = 3.0
+alpha = 250000.0
+bc = "dirichlet"
+
+[prior.hyper.vs_M]
+k = 1.0
+s = 3.0
+alpha = 250000.0
+bc = "mixed_dirichlet_neumann"
+
+[prior.hyper.rho]
+k = 1.0
+s = 3.0
+alpha = 250000.0
+bc = "neumann"
+
+[noise]
+data_noise_multiplier = 1.0
+
+[outputs]
+n_grid = 120
+n_prior_samples = 0
+n_posterior_samples = 0
+n_covariance_probes = 6
+save_npz = true
+save_csv = true
+save_figures = false
+save_samples = false
+figure_formats = ["png"]
+figure_blocks = "first"
+save_reconstructed_fields = false
+
+[diagnostics]
+prior_spectra = true
+data_spectra = true
+normal_operator = true
+posterior_contraction = true
+condition_numbers = true
+predictive_chi = true
+operator_timing = true
+truncation_refinement_compare = []
+integration_refinement_compare = []
+dense_blocks = "first"
+save_dense_normal_operator = true
+save_dense_data_covariance = true
+save_dense_property_covariance = true
+
+[[targets]]
+type = "cap_bulk"
+param = "vp"
+lat_deg = 0.0
+lon_deg = 0.0
+cap_radius_deg = 15.0
+r0_km = 4925.5
+width_km = 400.0
+
+[[targets]]
+type = "boxcar_bulk"
+param = "vs_M"
+lat_deg = 0.0
+lon_deg = 0.0
+cap_radius_deg = 15.0
+r_low_km = 3480.0
+r_high_km = 3780.0
+
+[[targets]]
+type = "cap_cmb"
+lat_deg = 0.0
+lon_deg = 0.0
+cap_radius_deg = 15.0

@@ -19,6 +19,8 @@ from ..core.functions import Function
 from ..core.config import IntegrationConfig
 from ..providers.base import EigenvalueProvider, SpectrumProvider
 from ..providers.radial import (
+    GeneralRadialLaplacianModeSolver,
+    GeneralRadialLaplacianProvider,
     RadialLaplacianDirichletProvider,
     RadialLaplacianNeumannProvider,
     RadialLaplacianDDProvider,
@@ -50,7 +52,8 @@ class RadialLaplacianEigenvalueProvider(EigenvalueProvider):
         boundary_conditions: BoundaryConditions,
         inverse: bool = False,
         alpha: float = 1.0,
-        ell: int = 0
+        ell: int = 0,
+        mode_solver: Optional[GeneralRadialLaplacianModeSolver] = None,
     ):
         """
         Initialize the radial Laplacian eigenvalue provider.
@@ -66,13 +69,14 @@ class RadialLaplacianEigenvalueProvider(EigenvalueProvider):
         alpha : float, default=1.0
             Scaling factor for the eigenvalues
         ell : int, default=0
-            Angular momentum quantum number (currently only ℓ=0 supported)
+            Angular momentum quantum number.
         """
         self._function_domain = function_domain
         self._boundary_conditions = boundary_conditions
         self._inverse = inverse
         self._alpha = alpha
         self._ell = ell
+        self._mode_solver = mode_solver
         self._eigenvalue_cache = {}
 
     def get_eigenvalue(self, index: int) -> float:
@@ -158,10 +162,11 @@ class RadialLaplacianEigenvalueProvider(EigenvalueProvider):
                         f"'{self._boundary_conditions.type}'"
                     )
         else:
-            raise NotImplementedError(
-                f"Radial Laplacian for ℓ={self._ell} not yet implemented. "
-                f"Currently only ℓ=0 (s-wave) is supported."
-            )
+            if self._mode_solver is None:
+                self._mode_solver = GeneralRadialLaplacianModeSolver(
+                    self._function_domain, self._boundary_conditions, self._ell
+                )
+            eigenval = self._mode_solver.eigenvalue(index)
 
         # Apply alpha scaling and inverse if needed
         if self._inverse:
@@ -249,6 +254,12 @@ class RadialLaplacianSpectrumProvider(SpectrumProvider):
         self._boundary_conditions = boundary_conditions
         self._inverse = inverse
         self._ell = ell
+        self._general_mode_solver = (
+            GeneralRadialLaplacianModeSolver(
+                space.function_domain, boundary_conditions, ell
+            )
+            if ell != 0 else None
+        )
         super().__init__(
             space, orthonormal=True, basis_type='radial_laplacian'
         )
@@ -258,7 +269,8 @@ class RadialLaplacianSpectrumProvider(SpectrumProvider):
             boundary_conditions,
             inverse,
             alpha,
-            ell
+            ell,
+            self._general_mode_solver,
         )
 
         # Initialize the appropriate function provider
@@ -268,6 +280,14 @@ class RadialLaplacianSpectrumProvider(SpectrumProvider):
         """Create the appropriate function provider based on domain and BC."""
         a = self.space.function_domain.a
         bc_type = self._boundary_conditions.type
+
+        if self._ell != 0:
+            return GeneralRadialLaplacianProvider(
+                self.space,
+                self._boundary_conditions,
+                self._ell,
+                mode_solver=self._general_mode_solver,
+            )
 
         # Case A: Domain (0, R) with regularity at r=0
         if np.isclose(a, 0.0, atol=1e-10):
@@ -446,10 +466,11 @@ class RadialLaplacian(SpectralOperator):
         """
         Create finite difference matrix for the radial Laplacian.
 
-        L = -d²/dr² - (2/r)d/dr
+        L = -d²/dr² - (2/r)d/dr + ell(ell+1)/r²
 
         Using centered differences:
             L_i f ≈ -[(1 + dr/r_i)f_{i+1} - 2f_i + (1 - dr/r_i)f_{i-1}]/dr²
+                    + ell(ell+1)f_i/r_i²
         """
         n = self._dofs
         dr = self._dr
@@ -457,6 +478,8 @@ class RadialLaplacian(SpectralOperator):
 
         # Main diagonal
         main_diag = np.full(n, 2.0 / dr**2)
+        if self._ell:
+            main_diag += self._ell * (self._ell + 1.0) / (r * r)
 
         # Upper diagonal: -(1 + dr/r_i)/dr²
         upper_diag = -(1.0 + dr / r[:-1]) / dr**2

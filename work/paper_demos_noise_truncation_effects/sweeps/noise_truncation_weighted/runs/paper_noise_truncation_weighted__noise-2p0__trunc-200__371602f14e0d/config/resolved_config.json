@@ -1,0 +1,228 @@
+{
+  "compute": {
+    "n_jobs": 32,
+    "parallel_blocks": true,
+    "threadpool_limit": 1
+  },
+  "data": {
+    "blocks": "all",
+    "data_mode": "real",
+    "max_data_per_block": 0,
+    "mode_filter": "kernel_catalog",
+    "s_max": 6
+  },
+  "defaults": {
+    "allow_inconsistent_stream": false,
+    "stream": "weighted"
+  },
+  "diagnostics": {
+    "condition_numbers": true,
+    "data_spectra": true,
+    "dense_blocks": "first",
+    "integration_refinement_compare": [],
+    "normal_operator": true,
+    "operator_timing": true,
+    "posterior_contraction": true,
+    "predictive_chi": true,
+    "prior_spectra": true,
+    "save_dense_data_covariance": false,
+    "save_dense_normal_operator": false,
+    "save_dense_property_covariance": true,
+    "truncation_refinement_compare": []
+  },
+  "integration": {
+    "lebesgue_dual": {
+      "method": "trapz",
+      "n_points": 1024
+    },
+    "lebesgue_general": {
+      "method": "trapz",
+      "n_points": 1024
+    },
+    "lebesgue_inner_product": {
+      "method": "trapz",
+      "n_points": 1024
+    },
+    "sola": {
+      "method": "trapz",
+      "n_points": 2048
+    }
+  },
+  "model_space": {
+    "cmb_radius_km": 3480.0,
+    "covariance_truncation": 200,
+    "earth_radius_km": 6371.0,
+    "icb_radius_km": 1217.5,
+    "weighted": true
+  },
+  "noise": {
+    "data_noise_multiplier": 2.0
+  },
+  "outputs": {
+    "figure_blocks": "first",
+    "figure_formats": [
+      "png"
+    ],
+    "n_grid": 300,
+    "n_posterior_samples": 8,
+    "n_prior_samples": 5,
+    "save_csv": true,
+    "save_figures": true,
+    "save_npz": true,
+    "save_reconstructed_fields": true,
+    "save_samples": true
+  },
+  "paths": {
+    "data_dir": "/disks/data/PhD/Inferences/intervalinf/demos/old_demos/paper_demos/data/normal-mode-data",
+    "kernel_dir": "/disks/data/PhD/Inferences/intervalinf/demos/old_demos/paper_demos/data/normal-mode-kernels/kernels-all_PREM-layers_Adrian"
+  },
+  "prior": {
+    "family": "bessel",
+    "hyper": {
+      "rho": {
+        "alpha": 100.0,
+        "bc": "mixed_neumann_dirichlet",
+        "k": 0.001,
+        "s": 3.0
+      },
+      "vp": {
+        "alpha": 100.0,
+        "bc": "mixed_neumann_dirichlet",
+        "k": 0.001,
+        "s": 3.0
+      },
+      "vs_IC": {
+        "alpha": 100.0,
+        "bc": "neumann",
+        "k": 0.001,
+        "s": 3.0
+      },
+      "vs_M": {
+        "alpha": 100.0,
+        "bc": "mixed_neumann_dirichlet",
+        "k": 0.001,
+        "s": 3.0
+      }
+    },
+    "sigma_var": 100.0,
+    "taus": {
+      "rho": 1.0,
+      "vp": 1.0,
+      "vs_IC": 1.0,
+      "vs_M": 1.0
+    }
+  },
+  "run": {
+    "name": "paper_noise_truncation_weighted__noise-2p0__trunc-200",
+    "output_root": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_noise_truncation_effects/sweeps/noise_truncation_weighted/runs",
+    "overwrite": false,
+    "seed": 20260605
+  },
+  "source_path": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_noise_truncation_effects/sweeps/noise_truncation_weighted/expanded_configs/paper_noise_truncation_weighted__noisem2p0__truncm200.json",
+  "synthetic": {
+    "noise_scale": 1.0,
+    "null_amp": 0.0,
+    "seed": 0
+  },
+  "targets": [
+    {
+      "cap_radius_deg": 15.0,
+      "lat_deg": 0.0,
+      "lon_deg": 0.0,
+      "param": "vp",
+      "r0_km": 4925.5,
+      "r_high_km": null,
+      "r_low_km": null,
+      "type": "cap_bulk",
+      "width_km": 400.0
+    },
+    {
+      "cap_radius_deg": 15.0,
+      "lat_deg": 30.0,
+      "lon_deg": 60.0,
+      "param": "vp",
+      "r0_km": 4925.5,
+      "r_high_km": null,
+      "r_low_km": null,
+      "type": "cap_bulk",
+      "width_km": 400.0
+    },
+    {
+      "cap_radius_deg": 15.0,
+      "lat_deg": -30.0,
+      "lon_deg": -120.0,
+      "param": "vp",
+      "r0_km": 4925.5,
+      "r_high_km": null,
+      "r_low_km": null,
+      "type": "cap_bulk",
+      "width_km": 400.0
+    },
+    {
+      "cap_radius_deg": 15.0,
+      "lat_deg": 0.0,
+      "lon_deg": 0.0,
+      "param": "vs_M",
+      "r0_km": null,
+      "r_high_km": 3780.0,
+      "r_low_km": 3480.0,
+      "type": "boxcar_bulk",
+      "width_km": null
+    },
+    {
+      "cap_radius_deg": 15.0,
+      "lat_deg": 45.0,
+      "lon_deg": 90.0,
+      "param": "vs_M",
+      "r0_km": null,
+      "r_high_km": 3780.0,
+      "r_low_km": 3480.0,
+      "type": "boxcar_bulk",
+      "width_km": null
+    },
+    {
+      "cap_radius_deg": 20.0,
+      "lat_deg": 0.0,
+      "lon_deg": 0.0,
+      "param": "vp",
+      "r0_km": 608.75,
+      "r_high_km": null,
+      "r_low_km": null,
+      "type": "cap_bulk",
+      "width_km": 300.0
+    },
+    {
+      "cap_radius_deg": 15.0,
+      "lat_deg": 0.0,
+      "lon_deg": 0.0,
+      "param": null,
+      "r0_km": null,
+      "r_high_km": null,
+      "r_low_km": null,
+      "type": "cap_cmb",
+      "width_km": null
+    },
+    {
+      "cap_radius_deg": 15.0,
+      "lat_deg": 30.0,
+      "lon_deg": 60.0,
+      "param": null,
+      "r0_km": null,
+      "r_high_km": null,
+      "r_low_km": null,
+      "type": "cap_cmb",
+      "width_km": null
+    },
+    {
+      "cap_radius_deg": 15.0,
+      "lat_deg": -30.0,
+      "lon_deg": -120.0,
+      "param": null,
+      "r0_km": null,
+      "r_high_km": null,
+      "r_low_km": null,
+      "type": "cap_cmb",
+      "width_km": null
+    }
+  ]
+}

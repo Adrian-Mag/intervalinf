@@ -1,0 +1,28 @@
+{
+  "sweep": {
+    "axis": [
+      {
+        "label": "noise",
+        "path": "noise.data_noise_multiplier",
+        "values": [
+          1.0,
+          2.0,
+          4.0,
+          10.0
+        ]
+      },
+      {
+        "label": "trunc",
+        "path": "model_space.covariance_truncation",
+        "values": [
+          50,
+          100,
+          200
+        ]
+      }
+    ],
+    "base_config": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_noise_truncation_effects/runtime_configs/noise_truncation_flat_base.runtime.json",
+    "name": "noise_truncation_flat",
+    "output_root": "/disks/data/PhD/Inferences/intervalinf/work/paper_demos_noise_truncation_effects/sweeps/noise_truncation_flat"
+  }
+}

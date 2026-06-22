@@ -39,6 +39,8 @@ def _radial_dirichlet_fast_eligible(L) -> bool:
         return False
     if getattr(L, "_method", "spectral") != "spectral":
         return False
+    if int(getattr(L, "_ell", 0)) != 0:
+        return False
     bc = getattr(L, "_boundary_conditions", None)
     return bc is not None and getattr(bc, "type", None) == "dirichlet"
 
@@ -397,3 +399,44 @@ class BesselSobolevInverse(LinearOperator):
         eigval = self._L.get_eigenvalue(index)
         validate_eigenvalue(eigval, index, allow_negative=False)
         return (self._k**2 + eigval)**(-self._s / 2)
+
+    def spectral_factor(self) -> LinearOperator:
+        """Return the spectral synthesis operator  S : ℝ^{N_modes} → M.
+
+        S satisfies  C = S S*  where C is this covariance operator.
+        Concretely,  S e_n = √λ_n φ_n  (scaled eigenfunction).
+
+        Building the data-space normal operator via  B = G S  and then
+        G C G* = B Bᵀ  is always exactly symmetric and avoids the
+        large-eigenvalue amplification that makes the classical column-by-column
+        G(C(G*(eⱼ))) assembly numerically asymmetric.
+        """
+        from pygeoinf import EuclideanSpace
+
+        N       = self._dofs
+        M       = self._domain
+        coeff_sp = EuclideanSpace(N)
+
+        # Cache to avoid repeated get_eigenvalue / get_eigenfunction calls
+        sqrt_lams = np.array([np.sqrt(self.get_eigenvalue(n)) for n in range(N)])
+        phis      = [self.get_eigenfunction(n) for n in range(N)]
+
+        def _apply(c: np.ndarray) -> Function:
+            # c ∈ ℝ^N  →  Σ_n c[n] √λ_n φ_n  ∈ M
+            def _eval(r):
+                r   = np.asarray(r, dtype=float)
+                out = np.zeros_like(r)
+                for n in range(N):
+                    out += c[n] * sqrt_lams[n] * np.asarray(phis[n](r), dtype=float)
+                return out
+            return Function(M.function_domain, evaluate_callable=_eval)
+
+        def _adjoint(f: Function) -> np.ndarray:
+            # f ∈ M  →  [√λ_n ⟨f, φ_n⟩_M]_n  ∈ ℝ^N
+            out = np.zeros(N)
+            for n in range(N):
+                phi_fn = Function(M.function_domain, evaluate_callable=phis[n])
+                out[n] = sqrt_lams[n] * M.inner_product(phi_fn, f)
+            return out
+
+        return LinearOperator(coeff_sp, M, _apply, adjoint_mapping=_adjoint)

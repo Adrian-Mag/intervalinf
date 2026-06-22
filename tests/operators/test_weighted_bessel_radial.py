@@ -58,6 +58,20 @@ def _make_radial_setup(n=24, k=1.5, s=2.0):
     return space, L, A, k, s
 
 
+def _make_weighted_space(a=0.0, b=1.0, n=16, n_points=3000):
+    """Weighted radial space helper for general-ell tests."""
+    domain = IntervalDomain(float(a), float(b))
+    integration = IntegrationConfig(method="simpson", n_points=n_points)
+    return WeightedLebesgue(n, domain, _r2, integration_config=integration), integration
+
+
+def _fd_derivative(f, r, h=1e-6):
+    """Centered finite-difference derivative with one-sided endpoint fallback."""
+    if r - h <= 0.0:
+        return (f(r + h) - f(r)) / h
+    return (f(r + h) - f(r - h)) / (2.0 * h)
+
+
 # ---------------------------------------------------------------------------
 # Core correctness: functional calculus on the radial eigenbasis
 # ---------------------------------------------------------------------------
@@ -133,6 +147,98 @@ def test_radial_bessel_inverse_positive_weighted():
     f = Function(space.function_domain, evaluate_callable=lambda r: np.sin(np.pi * np.asarray(r)))
     quad = space.inner_product(A(f), f)
     assert quad > 0.0
+
+
+def test_general_ell_regular_radial_modes_are_orthonormal_and_positive():
+    """ell>0 regular radial spectra are positive, increasing, and orthonormal."""
+    space, integration = _make_weighted_space(0.0, 1.0)
+    L = RadialLaplacian(
+        space, BoundaryConditions.dirichlet(), 1.0,
+        method="spectral", dofs=8, ell=2, integration_config=integration,
+    )
+
+    eigs = np.array([L.get_eigenvalue(i) for i in range(5)])
+    assert np.all(eigs > 0.0)
+    assert np.all(np.diff(eigs) > 0.0)
+
+    phis = [L.get_eigenfunction(i) for i in range(3)]
+    gram = np.array([[space.inner_product(phi_i, phi_j)
+                      for phi_j in phis] for phi_i in phis])
+    assert_allclose(gram, np.eye(3), rtol=1e-5, atol=1e-5)
+    for phi in phis:
+        assert_allclose(phi(1.0), 0.0, rtol=0.0, atol=1e-8)
+
+
+def test_general_ell_regular_neumann_boundary_condition():
+    """ell>0 regular Neumann modes satisfy the outer derivative condition."""
+    space, integration = _make_weighted_space(0.0, 1.0)
+    L = RadialLaplacian(
+        space, BoundaryConditions.neumann(), 1.0,
+        method="spectral", dofs=8, ell=2, integration_config=integration,
+    )
+
+    eigs = np.array([L.get_eigenvalue(i) for i in range(4)])
+    assert np.all(eigs > 0.0)
+    assert np.all(np.diff(eigs) > 0.0)
+    for i in range(3):
+        phi = L.get_eigenfunction(i)
+        assert_allclose(_fd_derivative(phi, 1.0), 0.0, rtol=0.0, atol=2e-5)
+
+
+def test_general_ell_shell_boundary_conditions_and_orthonormality():
+    """ell>0 shell modes satisfy all supported two-endpoint BCs."""
+    bc_cases = {
+        "dirichlet": ("D", "D"),
+        "mixed_dirichlet_neumann": ("D", "N"),
+        "mixed_neumann_dirichlet": ("N", "D"),
+        "neumann": ("N", "N"),
+    }
+    a, b = 0.4, 1.3
+    for bc_type, (left_bc, right_bc) in bc_cases.items():
+        space, integration = _make_weighted_space(a, b)
+        L = RadialLaplacian(
+            space, BoundaryConditions(bc_type), 1.0,
+            method="spectral", dofs=8, ell=2, integration_config=integration,
+        )
+        eigs = np.array([L.get_eigenvalue(i) for i in range(4)])
+        assert np.all(eigs > 0.0)
+        assert np.all(np.diff(eigs) > 0.0)
+
+        phis = [L.get_eigenfunction(i) for i in range(3)]
+        gram = np.array([[space.inner_product(phi_i, phi_j)
+                          for phi_j in phis] for phi_i in phis])
+        assert_allclose(gram, np.eye(3), rtol=1e-5, atol=2e-5)
+        for phi in phis:
+            if left_bc == "D":
+                assert_allclose(phi(a), 0.0, rtol=0.0, atol=2e-8)
+            else:
+                assert_allclose(_fd_derivative(phi, a), 0.0, rtol=0.0, atol=5e-5)
+            if right_bc == "D":
+                assert_allclose(phi(b), 0.0, rtol=0.0, atol=2e-8)
+            else:
+                assert_allclose(_fd_derivative(phi, b), 0.0, rtol=0.0, atol=5e-5)
+
+
+def test_general_ell_bessel_inverse_eigenfunction_scaling_weighted():
+    """BesselSobolevInverse scales general-ell radial eigenfunctions correctly."""
+    space, integration = _make_weighted_space(0.0, 1.0, n=12)
+    k, s_order = 1.5, 2.0
+    L = RadialLaplacian(
+        space, BoundaryConditions.dirichlet(), 1.0,
+        method="spectral", dofs=12, ell=2, integration_config=integration,
+    )
+    A = BesselSobolevInverse(
+        space, space, k, s_order, L, dofs=12, n_samples=512,
+        integration_config=integration,
+    )
+    assert A._radial_dirichlet_fast is False
+
+    r = np.linspace(0.02, 0.98, 200)
+    for j in (0, 1, 2):
+        phi_j = L.get_eigenfunction(j)
+        lam_j = L.get_eigenvalue(j)
+        g_j = (k ** 2 + lam_j) ** (-s_order / 2.0)
+        assert_allclose(A(phi_j)(r), g_j * phi_j(r), rtol=2e-2, atol=2e-3)
 
 
 # ---------------------------------------------------------------------------
