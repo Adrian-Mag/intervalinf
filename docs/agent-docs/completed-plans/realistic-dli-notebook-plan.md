@@ -45,3 +45,7 @@ Build a deterministic-linear-inference counterpart to the realistic Bayesian exa
 
 **Open Questions 1**
 1. If full model-space ellipsoids prove too expensive at the notebook level, should the next step be notebook-only approximation helpers or first-class operator support in `pygeoinf`?
+
+---
+**Status: completed** (moved from active-plans during the 2026-07-09 agent-docs revival;
+phase-completion documents exist in completed-plans/ — see files with this plan's prefix).

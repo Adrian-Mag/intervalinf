@@ -173,3 +173,8 @@ Build `intervalinf/demos/old_demos/paper_demos/example.ipynb` solving the entire
 3. **Joblib backend**: `loky` (default, safe with `pyshtools`) vs. `threading` (faster if no GIL contention — unlikely here); confirm at Phase 4.
 4. **Profile granularity**: `cProfile` line-level vs. function-level — start function-level for the dispatch picture, drop to `line_profiler` only if a single hotspot dominates.
 5. **3D model-space visualisation cost ceiling**: cap the optional Phase 7 slice at a coarse $\theta\times\phi$ grid (e.g. $90\times180$) so even when enabled it stays under ~30 s.
+
+
+---
+**Status: completed** (moved from active-plans during the 2026-07-09 agent-docs revival;
+phase-completion documents exist in completed-plans/ — see files with this plan's prefix).
