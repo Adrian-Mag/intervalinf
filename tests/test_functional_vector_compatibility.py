@@ -116,6 +116,28 @@ def test_basis_free_weighted_space_retains_functional_update() -> None:
     _assert_function_allclose(y, np.ones_like(points))
 
 
+def test_basis_free_coordinate_paths_fail_clearly() -> None:
+    space = _basis_free_space()
+    function = Function(
+        space,
+        evaluate_callable=lambda points: 1.0 + np.asarray(points),
+    )
+    matrix_operator = LinearOperator.from_matrix(
+        space,
+        space,
+        np.empty((0, 0)),
+    )
+
+    with pytest.raises(RuntimeError, match="no finite coordinate representation"):
+        space.to_components(function)
+
+    with pytest.raises(RuntimeError, match="no finite coordinate representation"):
+        space.from_components(np.zeros(0))
+
+    with pytest.raises(RuntimeError, match="no finite coordinate representation"):
+        matrix_operator(function)
+
+
 def test_direct_sum_retains_returned_basis_free_component() -> None:
     function_space = _basis_free_space()
     space = HilbertSpaceDirectSum([function_space, EuclideanSpace(1)])

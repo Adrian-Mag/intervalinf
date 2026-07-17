@@ -502,8 +502,9 @@ class Lebesgue(HilbertSpace):
 
         Computes c_i = ⟨φᵢ, f⟩ / ⟨φᵢ, φᵢ⟩ for each basis function.
 
-        For a basis-free space (dim=0, basis=None) this always returns an
-        empty array of length 0.
+        Basis-free spaces have no finite coordinate representation and raise
+        ``RuntimeError`` rather than silently collapsing a function to an
+        empty array.
 
         Args:
             f: A Function to project.
@@ -511,9 +512,9 @@ class Lebesgue(HilbertSpace):
         Returns:
             Coefficient array of length dim.
         """
+        self._require_coordinate_representation()
         if self._dim == 0:
             return np.zeros(0)
-        self._require_basis()
 
         # If function already has coefficients and is in this space, use them
         has_coeffs = hasattr(f, 'coefficients') and f.coefficients is not None
@@ -547,8 +548,9 @@ class Lebesgue(HilbertSpace):
           supported) → ``support=None``.
         - Otherwise → union of the active basis-function supports.
 
-        For a basis-free space (dim=0, basis=None) the only valid input is an
-        empty array; this returns the zero function.
+        Basis-free spaces have no finite coordinate representation and raise
+        ``RuntimeError`` even for an empty array. Use ``space.zero`` when the
+        mathematical zero function is required.
 
         Args:
             coefficients: Array of length dim.
@@ -556,6 +558,7 @@ class Lebesgue(HilbertSpace):
         Returns:
             Function f = Σ cᵢ φᵢ with inferred support metadata.
         """
+        self._require_coordinate_representation()
         if self._dim == 0:
             if len(coefficients) != 0:
                 raise ValueError(
@@ -862,6 +865,14 @@ class Lebesgue(HilbertSpace):
             raise RuntimeError(
                 "This operation requires a basis; set a BasisProvider "
                 "or direct basis first."
+            )
+
+    def _require_coordinate_representation(self) -> None:
+        """Raise when a basis-free space is used by coordinate-only code."""
+        if self._basis_type == 'none':
+            raise RuntimeError(
+                "Coordinate conversion requires a basis: this basis-free "
+                "Lebesgue space has no finite coordinate representation."
             )
 
     def _initialize_basis(self, basis):
