@@ -24,6 +24,13 @@ wheels/
 .installed.cfg
 *.egg
 
+# Research and generated output
+work/
+rough_work/
+demos/**/outputs/
+demos/**/*_figures/
+*.log
+
 # PyInstaller
 *.manifest
 *.spec
@@ -86,6 +93,16 @@ dmypy.json
 *.swp
 *.swo
 *~
+
+# Local agent infrastructure and planning records
+.agents/
+.claude/
+.codex/
+.windsurf/
+.local-agent-plan
+AGENTS.md
+CLAUDE.md
+docs/agent-docs/
 
 # OS
 .DS_Store

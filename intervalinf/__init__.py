@@ -9,25 +9,27 @@ continuous-first philosophy: discretization is optional, not forced.
 __version__ = "0.1.0"
 
 # Core components (no pygeoinf dependency)
-from intervalinf.core import IntervalDomain, BoundaryConditions, Function
-from intervalinf.core import IntegrationConfig, ParallelConfig
+from intervalinf.core import (
+    BoundaryConditions,
+    Function,
+    IntegrationConfig,
+    IntervalDomain,
+    ParallelConfig,
+)
 
 # Spaces (depend on pygeoinf for base classes)
 from intervalinf.spaces import (
+    KnownRegion,
     Lebesgue,
-    LebesgueSpaceDirectSum,
     LebesgueIntegrationConfig,
     LebesgueParallelConfig,
-    WeightedLebesgue,
+    LebesgueSpaceDirectSum,
+    LinearFormKernel,
+    PartitionedLebesgueSpace,
     Sobolev,
     SobolevSpaceDirectSum,
-    LinearFormKernel,
-    KnownRegion,
-    PartitionedLebesgueSpace,
+    WeightedLebesgue,
 )
-
-# Operators (depend on pygeoinf) - imported lazily
-# from intervalinf.operators import Laplacian, InverseLaplacian, Gradient
 
 __all__ = [
     # Version
@@ -49,8 +51,4 @@ __all__ = [
     "LinearFormKernel",
     "KnownRegion",
     "PartitionedLebesgueSpace",
-    # Operators (Level 3) - uncomment when operators module is ready
-    # "Laplacian",
-    # "InverseLaplacian",
-    # "Gradient",
 ]

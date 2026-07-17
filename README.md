@@ -1,106 +1,118 @@
 # intervalinf
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 
-**Function spaces and operators on 1D intervals** - built on [pygeoinf](https://github.com/yourusername/pygeoinf).
+Function spaces and operators on one-dimensional intervals, built on
+[pygeoinf](https://github.com/da380/pygeoinf).
 
-## Overview
-
-`intervalinf` provides concrete implementations of Hilbert spaces for functions defined on 1D intervals. It is designed with a **continuous-first philosophy**: discretization is optional, not forced.
-
-### Key Features
-
-- **Lebesgue (L²) and Sobolev spaces** on intervals with various boundary conditions
-- **Differential operators**: Laplacian, gradient, Bessel-Sobolev
-- **Spectral methods** with fast transforms (DST, DCT, DFT)
-- **FEM solvers** for elliptic PDEs
-- **KL expansion sampling** for Gaussian measures
-- **Radial operators** for spherical geometry applications
-
-### Design Philosophy
-
-Unlike many discretization frameworks, `intervalinf` allows functions to be represented **continuously**:
-
-```python
-from intervalinf import IntervalDomain, Lebesgue, Function
-
-# Create a domain and space WITHOUT discretization
-domain = IntervalDomain(0, 1)
-space = Lebesgue(function_domain=domain, basis='none')
-
-# Functions are callables, not coefficient vectors
-f = Function(space, evaluate_callable=lambda x: x**2)
-
-# Inner products computed via numerical integration, not matrix multiplication
-g = Function(space, evaluate_callable=lambda x: x**3)
-ip = space.inner_product(f, g)  # ∫₀¹ x² · x³ dx = 1/6
-```
-
-When you **need** a basis (for operators, inference, etc.), you can opt in:
-
-```python
-# Opt into discretization when needed
-space = Lebesgue(dim=50, function_domain=domain, basis='sine')
-```
+`intervalinf` provides continuous and basis-backed representations of functions
+on intervals. Its main components are Lebesgue and Sobolev spaces, spectral and
+finite-difference operators, weighted radial spaces, SOLA operators, and
+Karhunen-Loeve sampling.
 
 ## Installation
 
-```bash
-pip install intervalinf
-```
-
-Or for development:
+`intervalinf` requires Python 3.12 or newer and is currently installed from a
+source checkout:
 
 ```bash
-git clone https://github.com/yourusername/intervalinf.git
+git clone https://github.com/Adrian-Mag/intervalinf.git
 cd intervalinf
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
 ```
 
-## Quick Start
+Basis-free spaces require pygeoinf's functional vector-update contract, in
+which `HilbertSpace.ax()` and `HilbertSpace.axpy()` return the updated vector.
+That contract is newer than pygeoinf 1.8.2 and has not yet appeared in a tagged
+release. Until it is released, install intervalinf alongside a pygeoinf source
+checkout that contains the contract. Basis-free construction checks this at
+runtime and fails with an explicit compatibility error instead of silently
+returning incorrect results.
+
+## Continuous Functions
+
+No finite basis is required for direct function evaluation and integration:
 
 ```python
-from intervalinf import IntervalDomain, Lebesgue, Function, Laplacian
 import numpy as np
 
-# Define the domain [0, π]
-domain = IntervalDomain(0, np.pi)
+from intervalinf import Function, IntervalDomain, Lebesgue
 
-# Create L² space with sine basis (Dirichlet BCs)
-space = Lebesgue(dim=50, function_domain=domain, basis='sine')
+domain = IntervalDomain(0.0, 1.0)
+space = Lebesgue(0, domain, basis=None)
 
-# Create a function
+f = Function(space, evaluate_callable=lambda x: x**2)
+g = Function(space, evaluate_callable=lambda x: x**3)
+
+inner_product = space.inner_product(f, g)
+np.testing.assert_allclose(inner_product, 1.0 / 6.0, rtol=1e-6, atol=1e-10)
+```
+
+Set a positive dimension and choose a basis when coefficients or spectral
+operators are needed:
+
+```python
+import numpy as np
+
+from intervalinf import BoundaryConditions, Function, IntervalDomain, Lebesgue
+from intervalinf.operators import Laplacian
+
+domain = IntervalDomain(0.0, np.pi)
+space = Lebesgue(32, domain, basis="sine")
 f = Function(space, evaluate_callable=np.sin)
 
-# Apply the Laplacian
-L = Laplacian(space)
-Lf = L @ f  # -sin(x)
+laplacian = Laplacian(space, BoundaryConditions.dirichlet())
+laplacian_f = laplacian(f)
+np.testing.assert_allclose(laplacian_f(np.pi / 2.0), 1.0, rtol=1e-6, atol=1e-10)
 ```
 
-## Package Structure
+Operators are called on vectors with `operator(vector)`. The `@` operator is
+reserved for composing operators.
 
+## Weighted Radial Spaces
+
+`WeightedLebesgue` represents weighted inner products through pygeoinf's mass
+operator abstraction. For a spherical radial coordinate, the weight is `r**2`:
+
+```python
+from intervalinf import BoundaryConditions, IntervalDomain, WeightedLebesgue
+from intervalinf.operators import RadialLaplacian
+
+radial_domain = IntervalDomain(1.0, 2.0)
+radial_space = WeightedLebesgue(
+    0,
+    radial_domain,
+    weight=lambda r: r**2,
+    inverse_weight=lambda r: 1.0 / r**2,
+    basis=None,
+)
+radial_laplacian = RadialLaplacian(
+    radial_space,
+    BoundaryConditions.dirichlet(),
+    1.0,
+    dofs=16,
+    ell=2,
+)
+assert radial_laplacian.get_eigenvalue(0) > 0.0
 ```
-intervalinf/
-├── core/           # Domain, boundary conditions, Function class
-├── spaces/         # Lebesgue, Sobolev spaces
-├── operators/      # Laplacian, gradient, Bessel-Sobolev, SOLA
-├── providers/      # Basis function providers (sine, cosine, hat, etc.)
-├── sampling/       # KL expansion sampler
-└── utils/          # Utilities
+
+Use a strictly positive lower radius, or provide a regularized inverse weight,
+when `1 / r**2` would otherwise be singular at the origin.
+
+## Public Imports
+
+Core objects and spaces are available from `intervalinf`. Operators and
+sampling utilities are exposed by their subpackages:
+
+```python
+from intervalinf import Function, IntervalDomain, Lebesgue, Sobolev
+from intervalinf.operators import BesselSobolev, Laplacian, SOLAOperator
+from intervalinf.sampling import KLSampler
 ```
 
-## Relationship to pygeoinf
-
-`intervalinf` is built on top of `pygeoinf` and provides concrete implementations of its abstract base classes:
-
-| pygeoinf (abstract) | intervalinf (concrete) |
-|---------------------|------------------------|
-| `HilbertSpace` | `Lebesgue` |
-| `MassWeightedHilbertSpace` | `Sobolev` |
-| `LinearOperator` | `Laplacian`, `Gradient`, etc. |
-| `LinearForm` | `LinearFormKernel` |
+The notebooks in [`demos/`](demos/) provide longer examples.
 
 ## License
 
-BSD-3-Clause
+BSD-3-Clause. See [LICENSE](LICENSE).

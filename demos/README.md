@@ -1,52 +1,28 @@
 # intervalinf Demos
 
-Interactive Jupyter notebooks demonstrating the capabilities of the `intervalinf` package
-for interval-based function spaces and probabilistic inference.
-
-## Demo Organization
-
-### 1. Foundations
-- **01_interval_domain.ipynb** - Intervals, domains, and integration
-- **02_functions.ipynb** - Creating and manipulating functions on intervals
-- **03_function_arithmetic.ipynb** - Function operations and calculus
-
-### 2. Function Spaces
-- **04_lebesgue_spaces.ipynb** - L² spaces and basis representations
-- **05_sobolev_spaces.ipynb** - Sobolev spaces and smoothness priors
-- **06_weighted_spaces.ipynb** - Mass-weighted inner products
-
-### 3. Operators
-- **07_laplacian.ipynb** - Laplacian operator and boundary conditions
-- **08_inverse_laplacian.ipynb** - Green's functions and covariance operators
-- **09_bessel_sobolev.ipynb** - Bessel potential operators
-
-### 4. Probabilistic Linear Inference
-- **10_gaussian_measures.ipynb** - Gaussian measures on function spaces
-- **11_kl_expansion.ipynb** - Karhunen-Loève sampling
-- **12_linear_inference.ipynb** - Bayesian inference with linear observations
-
-### 5. Advanced Topics
-- **13_discontinuities.ipynb** - Handling discontinuous functions
-- **14_boundary_conditions.ipynb** - Advanced boundary condition handling
-- **15_radial_operators.ipynb** - Spherical coordinate operators
-
-## Running the Demos
-
-Ensure you have `intervalinf` installed:
+These Jupyter notebooks demonstrate the public `intervalinf` API. Install the
+development dependencies from the repository root before launching Jupyter:
 
 ```bash
-pip install -e /path/to/intervalinf
-```
-
-Then launch Jupyter:
-
-```bash
+python -m pip install -e ".[dev]"
 jupyter lab demos/
 ```
 
-## Prerequisites
+## Foundations
 
-Each notebook includes the necessary imports. The package dependencies are:
-- numpy
-- scipy
-- matplotlib (for visualization)
+- `1_interval_domain_demo.ipynb`: interval construction, meshing, and
+  integration.
+- `2_functions_demo.ipynb`: callable and coefficient-backed functions.
+- `3_lebesgue_space_demo.ipynb`: Lebesgue spaces and basis representations.
+- `3.1_kernel_functionals_demo.ipynb`: kernel-defined linear forms.
+- `4_function_and_basis_providers_demo.ipynb`: function and spectral provider
+  APIs.
+
+## Operators
+
+- `5_gradient_operator_demo.ipynb`: gradient construction and application.
+- `6_laplacian_operator_demo.ipynb`: Laplacian boundary conditions and spectral
+  application.
+
+`model_fusion/first_test.ipynb` is an experimental model-fusion notebook rather
+than part of the ordered introductory sequence.
