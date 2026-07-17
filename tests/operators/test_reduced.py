@@ -525,6 +525,31 @@ def test_reduced_covariance_fem_matches_semantic(
     npt.assert_allclose(reduced, expected, rtol=1e-3, atol=1e-5)
 
 
+def test_reduced_covariance_rejects_different_basis_representation(
+    covariance_sola_operator: SOLAOperator,
+) -> None:
+    """Coordinate operators must use the SOLA model representation."""
+    model_space = covariance_sola_operator.domain
+    incompatible_space = Lebesgue(
+        model_space.dim,
+        model_space.function_domain,
+        basis="cosine",
+        integration_config=model_space.integration,
+        parallel_config=model_space.parallel,
+    )
+    coordinate_identity = LinearOperator.from_matrix(
+        incompatible_space,
+        incompatible_space,
+        np.eye(incompatible_space.dim),
+    )
+
+    with pytest.raises(ValueError, match="model operator on G.domain"):
+        compute_reduced_covariance(
+            covariance_sola_operator,
+            coordinate_identity,
+        )
+
+
 def test_reduced_covariance_with_C_d(
     covariance_sola_operator: SOLAOperator,
     bessel_covariance_operator: BesselSobolev,

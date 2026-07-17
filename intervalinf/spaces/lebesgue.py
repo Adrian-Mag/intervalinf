@@ -596,15 +596,42 @@ class Lebesgue(HilbertSpace):
     # Equality and properties
     # ================================================================
 
-    def __eq__(self, other: object) -> bool:
-        """Check if two Lebesgue spaces are equal."""
+    def is_representation_compatible(self, other: object) -> bool:
+        """Return whether vectors share the same coordinate representation."""
         if not isinstance(other, Lebesgue):
             return False
         if self._dim != other._dim:
             return False
         if not (self._function_domain == other._function_domain):
             return False
+
+        if self._basis_type != other._basis_type:
+            return False
+        if self._basis_type == 'direct_functions':
+            return all(
+                left.evaluate_callable is right.evaluate_callable
+                for left, right in zip(
+                    self._basis_functions,
+                    other._basis_functions,
+                    strict=True,
+                )
+            )
+        if self._basis_type == 'none':
+            return True
+
+        if type(self.basis_provider) is not type(other.basis_provider):
+            return False
+        left_family = getattr(self.basis_provider, 'function_provider', None)
+        right_family = getattr(other.basis_provider, 'function_provider', None)
+        if type(left_family) is not type(right_family):
+            return False
+        if self._basis_type in (None, 'custom_provider'):
+            return self.basis_provider is other.basis_provider
         return True
+
+    def __eq__(self, other: object) -> bool:
+        """Check operational equality, including coordinate representation."""
+        return self.is_representation_compatible(other)
 
     @property
     def zero(self) -> 'Function':

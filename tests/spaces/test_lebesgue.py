@@ -166,6 +166,36 @@ class TestLebesgueEquality:
 
         assert space1 != space2
 
+    def test_unequal_basis_representation(self):
+        """Different coordinate bases are not operationally compatible."""
+        domain = IntervalDomain(0, 1)
+        sine_space = Lebesgue(3, domain, basis="sine")
+        cosine_space = Lebesgue(3, domain, basis="cosine")
+
+        assert sine_space != cosine_space
+
+    def test_equal_matching_basis_representation(self):
+        """Equivalent independently built standard bases remain equal."""
+        domain = IntervalDomain(0, 1)
+        space1 = Lebesgue(3, domain, basis="sine")
+        space2 = Lebesgue(3, domain, basis="sine")
+
+        assert space1 == space2
+
+    def test_unequal_direct_callable_bases(self):
+        """Arbitrary callable bases require the same callable identities."""
+        domain = IntervalDomain(0, 1)
+        constant = lambda x: np.ones_like(x)
+        linear = lambda x: np.asarray(x)
+        quadratic = lambda x: np.asarray(x) ** 2
+        space1 = Lebesgue(2, domain, basis=[constant, linear])
+        space2 = Lebesgue(2, domain, basis=[constant, quadratic])
+
+        assert space1 != space2
+
+        space3 = Lebesgue(2, domain, basis=[constant, linear])
+        assert space1 == space3
+
     def test_not_equal_to_non_lebesgue(self):
         """Test that Lebesgue is not equal to other types."""
         domain = IntervalDomain(0, 1)
