@@ -20,10 +20,11 @@ def compute_reduced_covariance(
 ) -> np.ndarray:
     """Assemble the dense reduced covariance ``G C G* + C_d``.
 
-    This evaluates each SOLA kernel ``g_j`` on the shared fixed-grid mesh,
-    applies the model-side operator ``C`` to obtain ``C(g_j)``, evaluates the
-    transformed kernels on the same mesh, and contracts the two kernel tables
-    with the fixed-grid quadrature weights.
+    This evaluates each SOLA kernel ``g_i`` on the shared fixed-grid mesh,
+    applies the model-side operator ``C`` to the adjoint representative
+    ``G*(e_j)``, evaluates the transformed functions on the same mesh, and
+    contracts the two tables with the fixed-grid quadrature weights. For a
+    mass-weighted domain, ``G*(e_j) = M^-1 g_j``.
 
     Args:
         G: SOLA operator whose data kernels define the reduced basis.
@@ -56,12 +57,7 @@ def compute_reduced_covariance(
 
     transformed_rows = []
     for j in range(G.N_d):
-        # TODO(mass-weighted): for MassWeightedHilbertSpace domain the adjoint
-        # G*(e_j) = M^{-1}(k_j), so C should be applied to M^{-1}(k_j) here,
-        # not to k_j directly.  Fix: kernel_j = (domain.inverse_mass_operator(G.get_kernel(j))
-        #   if isinstance(G.domain, MassWeightedHilbertSpace) else G.get_kernel(j))
-        # then pass kernel_j to C.  See discussion 2026-05-19.
-        transformed_kernel = C(G.get_kernel(j))
+        transformed_kernel = C(G._adjoint_kernel(j))
         transformed_rows.append(np.asarray(G._eval_on_mesh(transformed_kernel, xs)))
 
     transformed_matrix = (

@@ -14,6 +14,8 @@ from intervalinf import (
     Lebesgue,
     LebesgueIntegrationConfig,
     ParallelConfig,
+    Sobolev,
+    WeightedLebesgue,
 )
 from intervalinf.operators import (
     BesselSobolev,
@@ -405,6 +407,89 @@ def test_reduced_covariance_bessel_matches_semantic(
     )
 
     npt.assert_allclose(reduced, expected, rtol=1e-4, atol=1e-6)
+
+
+def test_reduced_covariance_weighted_identity_matches_semantic() -> None:
+    """Weighted assembly applies covariance to ``M^-1 k_j``."""
+    domain = IntervalDomain(0.0, 1.0)
+    integration = IntegrationConfig(method="simpson", n_points=1001)
+    space = WeightedLebesgue(
+        0,
+        domain,
+        weight=lambda x: 1.0 + np.asarray(x),
+        inverse_weight=lambda x: 1.0 / (1.0 + np.asarray(x)),
+        integration_config=integration,
+    )
+    kernels = [
+        Function(domain, evaluate_callable=lambda x: np.ones_like(x)),
+        Function(domain, evaluate_callable=lambda x: np.asarray(x)),
+    ]
+    operator = SOLAOperator(
+        space,
+        EuclideanSpace(2),
+        kernels=kernels,
+        integration_config=integration,
+    )
+    identity = LinearOperator(
+        space,
+        space,
+        lambda function: function,
+        adjoint_mapping=lambda function: function,
+    )
+
+    reduced = compute_reduced_covariance(operator, identity)
+    expected = _semantic_reduced_covariance_matrix(operator, identity)
+
+    npt.assert_allclose(reduced, expected, rtol=1e-10, atol=1e-12)
+
+
+def test_reduced_covariance_sobolev_identity_matches_semantic() -> None:
+    """Sobolev assembly uses the inverse Bessel mass in ``G*``."""
+    domain = IntervalDomain(0.0, np.pi)
+    integration = IntegrationConfig(method="simpson", n_points=401)
+    lebesgue = Lebesgue(
+        12,
+        domain,
+        basis=None,
+        integration_config=integration,
+    )
+    laplacian = Laplacian(
+        lebesgue,
+        BoundaryConditions.dirichlet(),
+        method="spectral",
+        dofs=12,
+        integration_config=integration,
+    )
+    space = Sobolev(
+        12,
+        domain,
+        1.0,
+        1.0,
+        laplacian,
+        basis=None,
+        integration_config=integration,
+    )
+    kernels = [
+        Function(domain, evaluate_callable=lambda x: np.sin(np.asarray(x))),
+        Function(domain, evaluate_callable=lambda x: np.sin(2.0 * np.asarray(x))),
+    ]
+    operator = SOLAOperator(
+        space,
+        EuclideanSpace(2),
+        kernels=kernels,
+        integration_config=integration,
+    )
+    identity = LinearOperator(
+        space,
+        space,
+        lambda function: function,
+        adjoint_mapping=lambda function: function,
+    )
+
+    reduced = compute_reduced_covariance(operator, identity)
+    expected = _semantic_reduced_covariance_matrix(operator, identity)
+
+    npt.assert_allclose(reduced, expected, rtol=1e-9, atol=1e-11)
 
 
 def test_reduced_covariance_fem_shape(
