@@ -53,6 +53,29 @@ if TYPE_CHECKING:
     from intervalinf.core.domain import IntervalDomain
 
 
+def _detect_functional_vector_updates() -> bool:
+    """Check whether pygeoinf retains vectors returned by component updates."""
+    updated = object()
+
+    class _ProbeSpace:
+        dim = 0
+
+        @staticmethod
+        def axpy(a, x, y):
+            return updated
+
+    values = [object()]
+    result = HilbertSpaceDirectSum([_ProbeSpace()]).axpy(
+        1.0,
+        [object()],
+        values,
+    )
+    return result is values and values == [updated]
+
+
+_PYGEOINF_FUNCTIONAL_VECTOR_UPDATES = _detect_functional_vector_updates()
+
+
 # =============================================================================
 # Hierarchical Configuration Classes (Lebesgue-specific)
 # =============================================================================
@@ -315,6 +338,15 @@ class Lebesgue(HilbertSpace):
 
         # Initialize basis
         self._initialize_basis(basis or 'none')
+        if (
+            self._basis_type == 'none'
+            and not _PYGEOINF_FUNCTIONAL_VECTOR_UPDATES
+        ):
+            raise RuntimeError(
+                "Basis-free Lebesgue spaces require pygeoinf's functional "
+                "vector-update contract: HilbertSpace.ax() and axpy() must "
+                "return the updated vector."
+            )
 
         # Cached computations
         self._metric = None
@@ -611,21 +643,19 @@ class Lebesgue(HilbertSpace):
         else:
             return x + y
 
-    def ax(self, a: float, x: 'Function') -> None:
-        """Perform in-place scaling x := a*x."""
+    def ax(self, a: float, x: 'Function') -> 'Function':
+        """Return ``a*x``, using in-place scaling when coefficients exist."""
         if hasattr(x, 'coefficients') and x.coefficients is not None:
             x.coefficients *= a
             if a == 0:
                 x.support = []
             x.clear_materializations()
+            return x
         else:
-            raise ValueError(
-                "Cannot perform in-place operation on function "
-                "without coefficients"
-            )
+            return self.multiply(a, x)
 
     def axpy(self, a: float, x: 'Function', y: 'Function') -> 'Function':
-        """Performs y := y + a*x in-place, updating support to union(y, x)."""
+        """Return ``y + a*x``, updating ``y`` in place when coefficients exist."""
         y_has = hasattr(y, 'coefficients') and y.coefficients is not None
         x_has = hasattr(x, 'coefficients') and x.coefficients is not None
         if y_has and x_has:
