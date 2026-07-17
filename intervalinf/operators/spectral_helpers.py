@@ -50,7 +50,10 @@ def build_eigenfunction_expansion(
         result = (np.zeros_like(x, dtype=float)
                   if isinstance(x, np.ndarray) else 0.0)
         for coeff, eigfunc in significant_terms:
-            result = result + coeff * eigfunc(x)
+            result = result + coeff * eigfunc.evaluate(
+                x,
+                check_domain=False,
+            )
         return result
 
     return Function(codomain, evaluate_callable=evaluate_expansion)

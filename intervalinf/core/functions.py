@@ -848,7 +848,7 @@ class Function:
             )
 
             def scalar_op_callable(x):
-                return op(self.evaluate(x), other)
+                return op(self.evaluate(x, check_domain=False), other)
 
             return self.__class__(
                 result_context,

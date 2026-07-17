@@ -770,11 +770,14 @@ class SOLAOperator(LinearOperator):
             # Used for arbitrary meshes or when the cache is not yet populated.
             result = np.zeros_like(x) if isinstance(x, np.ndarray) else 0.0
             for coeff, kernel in terms:
-                result = result + coeff * kernel.evaluate(x)
+                result = result + coeff * kernel.evaluate(
+                    x,
+                    check_domain=False,
+                )
             return result
 
         return Function(
-            self._domain.function_domain, evaluate_callable=evaluate_sum
+            self._domain, evaluate_callable=evaluate_sum
         )
 
     def get_kernels(self) -> List[Function]:
