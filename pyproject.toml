@@ -55,8 +55,15 @@ plotting = [
     "matplotlib>=3.8.0",
     "seaborn>=0.13.0",
 ]
+demos = [
+    "ipykernel>=6.0.0",
+    "jupyterlab>=4.0.0",
+    "matplotlib>=3.8.0",
+    "nbconvert>=7.0.0",
+    "seaborn>=0.13.0",
+]
 all = [
-    "intervalinf[dev,docs,plotting]",
+    "intervalinf[dev,docs,plotting,demos]",
 ]
 
 [project.urls]

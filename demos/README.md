@@ -1,11 +1,20 @@
 # intervalinf Demos
 
 These Jupyter notebooks demonstrate the public `intervalinf` API. Install the
-development dependencies from the repository root before launching Jupyter:
+demo dependencies from the repository root before launching Jupyter:
 
 ```bash
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[demos]"
 jupyter lab demos/
+```
+
+The notebooks are also safe to execute headlessly and sequentially:
+
+```bash
+MPLBACKEND=Agg python -m nbconvert \
+  --to notebook --execute --ExecutePreprocessor.timeout=120 \
+  --output-dir=/tmp/intervalinf-demos \
+  demos/*.ipynb demos/model_fusion/*.ipynb
 ```
 
 ## Foundations
