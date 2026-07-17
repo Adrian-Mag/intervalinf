@@ -516,6 +516,18 @@ class SOLAOperator(LinearOperator):
         # ── Classification pass (no mesh construction yet) ─────────────────
         for i in range(self.N_d):
             kernel = self.get_kernel(i)
+            if func.support == [] or kernel.support == []:
+                disjoint_mask[i] = True
+                self._stats["disjoint_skips"] += 1
+                continue
+
+            # A global kernel remains eligible for the shared full-domain
+            # cache even when the input function has compact support. Function
+            # evaluation already supplies exact zeros outside that support.
+            if kernel.support is None:
+                full_domain_kernels.append((i, kernel))
+                continue
+
             intersected_support = Function._intersect_supports(
                 func.support, kernel.support
             )

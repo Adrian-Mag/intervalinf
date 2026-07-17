@@ -693,12 +693,12 @@ class TestCompactSupportBehavior:
         result = G(f)
         assert_allclose(result[0], 0.0, atol=1e-12)
 
-    def test_support_propagation_matches_no_support_metadata(self, lebesgue_space, unit_domain):
+    def test_support_metadata_matches_analytic_integral(self, lebesgue_space, unit_domain):
         """
-        Phase 3: a kernel with support=[0.2, 0.8] should give the same
-        forward value as an identical kernel without support metadata, because
-        both the integrand value and the integration range are equivalent when
-        the kernel is zero outside its support.
+        Support-restricted quadrature matches the analytic integral. The
+        global path is less accurate because the fixed mesh does not generally
+        hit the two discontinuities, but identical global kernels remain
+        bitwise consistent with one another.
         """
         def k_callable(x):
             x = np.asarray(x)
@@ -721,7 +721,12 @@ class TestCompactSupportBehavior:
         # Both kernels are identical callables, so results should be identical
         r_with = G_with(f)
         r_none = G_none(f)
-        assert_allclose(r_with, r_none, rtol=1e-6)
+        expected = 2.0 * np.cos(0.2 * np.pi) / np.pi
+
+        assert_allclose(r_with[0], expected, rtol=1e-8, atol=1e-10)
+        assert_allclose(r_with[1], r_none[0], rtol=0.0, atol=0.0)
+        assert_allclose(r_none, expected, rtol=5e-4, atol=1e-10)
+        assert abs(r_with[0] - expected) < abs(r_none[0] - expected)
 
 
 # ---------------------------------------------------------------------------
