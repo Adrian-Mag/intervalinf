@@ -266,34 +266,28 @@ class Sobolev(MassWeightedHilbertSpace):
     @property
     def mass_operator_factor(self):
         """Get M^{1/2} = (k² I + Δ)^s."""
-        try:
-            from pygeoinf.interval.operators import BesselSobolev
-            return BesselSobolev(
-                self._underlying_space,
-                self._underlying_space,
-                k=self._k,
-                s=self._s,
-                L=self._L,
-                dofs=self._dofs
-            )
-        except ImportError:
-            raise NotImplementedError("Requires operators module (Phase 3)")
+        from intervalinf.operators.bessel import BesselSobolev
+        return BesselSobolev(
+            self._underlying_space,
+            self._underlying_space,
+            k=self._k,
+            s=self._s,
+            L=self._L,
+            dofs=self._dofs
+        )
 
     @property
     def inverse_mass_operator_factor(self):
         """Get M^{-1/2} = (k² I + Δ)^{-s}."""
-        try:
-            from pygeoinf.interval.operators import BesselSobolevInverse
-            return BesselSobolevInverse(
-                self._underlying_space,
-                self._underlying_space,
-                k=self._k,
-                s=self._s,
-                L=self._L,
-                dofs=self._dofs
-            )
-        except ImportError:
-            raise NotImplementedError("Requires operators module (Phase 3)")
+        from intervalinf.operators.bessel import BesselSobolevInverse
+        return BesselSobolevInverse(
+            self._underlying_space,
+            self._underlying_space,
+            k=self._k,
+            s=self._s,
+            L=self._L,
+            dofs=self._dofs
+        )
 
     def restrict(
         self,
@@ -334,33 +328,27 @@ class Sobolev(MassWeightedHilbertSpace):
         restricted_space._L = L_restricted
 
         # Update mass operators
-        try:
-            from pygeoinf.interval.operators import (
-                BesselSobolev, BesselSobolevInverse
-            )
+        from intervalinf.operators.bessel import BesselSobolev, BesselSobolevInverse
 
-            M_op = BesselSobolev(
-                restricted_space._underlying_space,
-                restricted_space._underlying_space,
-                k=restricted_space._k,
-                s=2 * restricted_space._s,
-                L=L_restricted,
-                dofs=L_restricted._dofs
-            )
-            M_op_inv = BesselSobolevInverse(
-                restricted_space._underlying_space,
-                restricted_space._underlying_space,
-                k=restricted_space._k,
-                s=2 * restricted_space._s,
-                L=L_restricted,
-                dofs=L_restricted._dofs
-            )
+        M_op = BesselSobolev(
+            restricted_space._underlying_space,
+            restricted_space._underlying_space,
+            k=restricted_space._k,
+            s=2 * restricted_space._s,
+            L=L_restricted,
+            dofs=L_restricted._dofs
+        )
+        M_op_inv = BesselSobolevInverse(
+            restricted_space._underlying_space,
+            restricted_space._underlying_space,
+            k=restricted_space._k,
+            s=2 * restricted_space._s,
+            L=L_restricted,
+            dofs=L_restricted._dofs
+        )
 
-            restricted_space._mass_operator = M_op
-            restricted_space._inverse_mass_operator = M_op_inv
-
-        except ImportError:
-            raise NotImplementedError("Requires operators module (Phase 3)")
+        restricted_space._mass_operator = M_op
+        restricted_space._inverse_mass_operator = M_op_inv
 
         return restricted_space
 
@@ -474,43 +462,36 @@ class Sobolev(MassWeightedHilbertSpace):
                 method='simpson', n_points=1000
             )
 
-        # Create subspaces (requires Phase 3 operators)
-        try:
-            from pygeoinf.interval.operators import Laplacian
+        # Create subspaces
+        from intervalinf.operators.laplacian import Laplacian
 
-            subspaces = []
-            for d, subdomain, b, bc in zip(dims, subdomains, bases, bcs_list):
-                # Create temporary Lebesgue for Laplacian
-                M_lebesgue = Lebesgue(
-                    0, subdomain, basis=None,
-                    integration_config=integration_config,
-                    parallel_config=parallel_config
-                )
-
-                # Create Laplacian
-                laplacian = Laplacian(
-                    M_lebesgue, bc, alpha,
-                    method=laplacian_method,
-                    dofs=dofs,
-                    n_samples=n_samples,
-                    integration_config=integration_config
-                )
-
-                # Create Sobolev subspace
-                sobolev_subspace = cls(
-                    d, subdomain, s, k, laplacian,
-                    basis=b,
-                    integration_config=integration_config
-                )
-                subspaces.append(sobolev_subspace)
-
-            return SobolevSpaceDirectSum(subspaces)
-
-        except ImportError:
-            raise NotImplementedError(
-                "Sobolev.with_discontinuities requires operators module "
-                "(Phase 3). Install pygeoinf for interim support."
+        subspaces = []
+        for d, subdomain, b, bc in zip(dims, subdomains, bases, bcs_list):
+            # Create Lebesgue space for Laplacian
+            M_lebesgue = Lebesgue(
+                0, subdomain, basis=None,
+                integration_config=integration_config,
+                parallel_config=parallel_config
             )
+
+            # Create Laplacian
+            laplacian = Laplacian(
+                M_lebesgue, bc, alpha,
+                method=laplacian_method,
+                dofs=dofs,
+                n_samples=n_samples,
+                integration_config=integration_config
+            )
+
+            # Create Sobolev subspace
+            sobolev_subspace = cls(
+                d, subdomain, s, k, laplacian,
+                basis=b,
+                integration_config=integration_config
+            )
+            subspaces.append(sobolev_subspace)
+
+        return SobolevSpaceDirectSum(subspaces)
 
 
 class SobolevSpaceDirectSum(HilbertSpaceDirectSum):

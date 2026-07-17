@@ -237,7 +237,8 @@ def create_uniform_samples(
         'mixed_dirichlet_neumann', 'mixed_neumann_dirichlet'
     ],
     left_bc_type: Optional[str] = None,
-    right_bc_type: Optional[str] = None
+    right_bc_type: Optional[str] = None,
+    domain_obj=None
 ) -> np.ndarray:
     """
     Create uniform samples of a function on the domain.
@@ -249,44 +250,40 @@ def create_uniform_samples(
         boundary_condition: Affects sampling strategy
         left_bc_type: DEPRECATED - inferred from boundary_condition
         right_bc_type: DEPRECATED - inferred from boundary_condition
+        domain_obj: Optional IntervalDomain object. When provided, its
+            ``uniform_mesh`` method is used as a fallback so that
+            half-open interval boundaries are respected even when the
+            function does not carry a ``space`` attribute.
 
     Returns:
         np.ndarray: Function samples at appropriate points
     """
     a, b = domain
 
+    # Resolve domain object: prefer func.space.function_domain, then explicit domain_obj
+    _resolved_domain = None
+    if hasattr(func, 'space') and hasattr(func.space, 'function_domain'):
+        _resolved_domain = func.space.function_domain
+    elif domain_obj is not None:
+        _resolved_domain = domain_obj
+
+    def _mesh(n):
+        """Generate n uniform mesh points using the resolved domain or linspace."""
+        if _resolved_domain is not None and hasattr(_resolved_domain, 'uniform_mesh'):
+            return _resolved_domain.uniform_mesh(n)
+        return np.linspace(a, b, n)
+
     if boundary_condition == 'dirichlet':
         # For Dirichlet, exclude boundary points
-        if hasattr(func, 'space') and hasattr(func.space, 'function_domain'):
-            domain_obj = func.space.function_domain
-            if hasattr(domain_obj, 'uniform_mesh'):
-                x = domain_obj.uniform_mesh(n_samples + 2)[1:-1]
-            else:
-                x = np.linspace(a, b, n_samples + 2)[1:-1]
-        else:
-            x = np.linspace(a, b, n_samples + 2)[1:-1]
+        x = _mesh(n_samples + 2)[1:-1]
 
     elif boundary_condition == 'neumann':
         # For Neumann, use domain's uniform_mesh
-        if hasattr(func, 'space') and hasattr(func.space, 'function_domain'):
-            domain_obj = func.space.function_domain
-            if hasattr(domain_obj, 'uniform_mesh'):
-                x = domain_obj.uniform_mesh(n_samples)
-            else:
-                x = np.linspace(a, b, n_samples)
-        else:
-            x = np.linspace(a, b, n_samples)
+        x = _mesh(n_samples)
 
     elif boundary_condition == 'periodic':
         # For periodic, exclude the right endpoint
-        if hasattr(func, 'space') and hasattr(func.space, 'function_domain'):
-            domain_obj = func.space.function_domain
-            if hasattr(domain_obj, 'uniform_mesh'):
-                x = domain_obj.uniform_mesh(n_samples + 1)[:-1]
-            else:
-                x = np.linspace(a, b, n_samples + 1)[:-1]
-        else:
-            x = np.linspace(a, b, n_samples + 1)[:-1]
+        x = _mesh(n_samples + 1)[:-1]
 
     elif boundary_condition == 'mixed_dirichlet_neumann':
         # DST-II: sample at (k+½)Δx for k=0..N-1

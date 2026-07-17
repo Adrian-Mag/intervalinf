@@ -135,31 +135,29 @@ class KLSampler:
         """
         Detect if domain is mass-weighted and configure eigenvalue adjustment.
 
-        For Sobolev spaces (MassWeightedHilbertSpace), the covariance operator
+        For Sobolev spaces with a BesselSobolev mass operator, the covariance
         eigenvalues must be adjusted: λ_i' = λ_i / μ_i² where μ_i² are the
         squared mass operator eigenvalues.
+
+        For spaces with a multiplicative mass operator (e.g. WeightedLebesgue),
+        the operator's eigenfunctions are already orthonormal w.r.t. the
+        weighted inner product, so no eigenvalue adjustment is needed.
         """
         self._is_weighted = isinstance(self._domain, MassWeightedHilbertSpace)
 
         if not self._is_weighted:
-            # Unweighted space - no adjustment needed
             self._mass_operator = None
             return
 
-        # Extract mass operator from the weighted space
-        # We know it's MassWeightedHilbertSpace from isinstance check above
         weighted_domain = cast(MassWeightedHilbertSpace, self._domain)
         self._mass_operator = weighted_domain.mass_operator
 
-        # Check if mass operator is BesselSobolev (has spectral decomposition)
         self._is_bessel_sobolev = self._detect_bessel_sobolev()
-
+        # For multiplicative-weight spaces (e.g. WeightedLebesgue), eigenfunctions
+        # are already w-orthonormal — treat the same as unweighted for sampling.
         if not self._is_bessel_sobolev:
-            raise NotImplementedError(
-                "KLSampler currently only supports BesselSobolev mass "
-                "operators. General mass-weighted spaces require numerical "
-                "eigenvalue computation, which is not yet implemented."
-            )
+            self._is_weighted = False
+            self._mass_operator = None
 
     def _detect_bessel_sobolev(self) -> bool:
         """Check if mass operator is a BesselSobolev operator."""
@@ -348,6 +346,7 @@ class KLSampler:
             domain, codomain, mapping, adjoint_mapping=adjoint_mapping
         )
 
+    @property
     def variance_function(self):
         """Return a function representing the pointwise variance.
 

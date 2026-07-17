@@ -576,3 +576,240 @@ class TestLebesgueBasisless:
 
         with pytest.raises(RuntimeError, match="No basis functions"):
             space.get_basis_function(0)
+
+
+class TestLebesgueFromComponentsSupport:
+    """Test Phase 2: support-metadata inference in from_components and algebra."""
+
+    @pytest.fixture
+    def boxcar_space(self):
+        """Lebesgue space backed by BoxCarFunctionProvider (compact support)."""
+        from intervalinf.providers import BoxCarFunctionProvider, CustomBasisProvider
+
+        domain = IntervalDomain(0, 1)
+        n = 5
+        space = Lebesgue(n, domain)
+        centers = np.linspace(0.1, 0.9, n)
+        boxcar_fp = BoxCarFunctionProvider(
+            space, centers=centers, default_width=0.15
+        )
+        basis_provider = CustomBasisProvider(space, boxcar_fp, basis_type='step')
+        space.set_basis_provider(basis_provider)
+        return space
+
+    @pytest.fixture
+    def fourier_space(self):
+        """Lebesgue space with Fourier basis (globally supported)."""
+        domain = IntervalDomain(0, 1)
+        return Lebesgue(5, domain, basis='fourier')
+
+    # ------------------------------------------------------------------
+    # zero property
+    # ------------------------------------------------------------------
+
+    def test_zero_property_has_empty_support(self, boxcar_space):
+        """space.zero should have support=[] (no nonzero contribution)."""
+        zero = boxcar_space.zero
+        assert zero.support == []
+
+    # ------------------------------------------------------------------
+    # from_components support inference
+    # ------------------------------------------------------------------
+
+    def test_from_components_all_zero_gives_empty_support(self, boxcar_space):
+        """All-zero coefficient array → Function with support=[]."""
+        result = boxcar_space.from_components(np.zeros(5))
+        assert result.support == []
+
+    def test_from_components_boxcar_single_nonzero_gives_basis_support(
+        self, boxcar_space
+    ):
+        """Unit vector at index i → support matches the i-th basis function."""
+        i = 2
+        coeffs = np.zeros(5)
+        coeffs[i] = 1.0
+        result = boxcar_space.from_components(coeffs)
+        bf_support = boxcar_space.get_basis_function(i).support
+        assert result.support == bf_support
+
+    def test_from_components_boxcar_two_nonzero_gives_union_support(
+        self, boxcar_space
+    ):
+        """Two nonzero entries → support is union of their basis-function supports."""
+        coeffs = np.zeros(5)
+        coeffs[0] = 1.0
+        coeffs[4] = 1.0
+        result = boxcar_space.from_components(coeffs)
+        bf0 = boxcar_space.get_basis_function(0).support
+        bf4 = boxcar_space.get_basis_function(4).support
+        expected = Function._union_supports(bf0, bf4)
+        assert result.support == expected
+
+    def test_from_components_fourier_any_nonzero_gives_none_support(
+        self, fourier_space
+    ):
+        """Active Fourier (global) basis function → result.support is None."""
+        coeffs = np.zeros(5)
+        coeffs[1] = 1.0
+        result = fourier_space.from_components(coeffs)
+        assert result.support is None
+
+    # ------------------------------------------------------------------
+    # multiply support propagation
+    # ------------------------------------------------------------------
+
+    def test_multiply_zero_scalar_gives_empty_support(self, boxcar_space):
+        """Multiplying a coefficient function by 0 → support=[]."""
+        coeffs = np.zeros(5)
+        coeffs[2] = 1.0
+        f = boxcar_space.from_components(coeffs)
+        result = boxcar_space.multiply(0.0, f)
+        assert result.support == []
+
+    def test_multiply_nonzero_scalar_preserves_support(self, boxcar_space):
+        """Multiplying by a nonzero scalar keeps original support."""
+        coeffs = np.zeros(5)
+        coeffs[2] = 1.0
+        f = boxcar_space.from_components(coeffs)
+        result = boxcar_space.multiply(2.0, f)
+        assert result.support == f.support
+
+    # ------------------------------------------------------------------
+    # add support propagation
+    # ------------------------------------------------------------------
+
+    def test_add_coefficient_union_support(self, boxcar_space):
+        """add(f, g) with coefficient functions → union of supports."""
+        ca = np.zeros(5)
+        ca[0] = 1.0
+        cb = np.zeros(5)
+        cb[4] = 1.0
+        fa = boxcar_space.from_components(ca)
+        fb = boxcar_space.from_components(cb)
+        result = boxcar_space.add(fa, fb)
+        expected = Function._union_supports(fa.support, fb.support)
+        assert result.support == expected
+
+    # ------------------------------------------------------------------
+    # axpy support propagation
+    # ------------------------------------------------------------------
+
+    def test_axpy_updates_support_in_place(self, boxcar_space):
+        """axpy(a, x, y) updates y.support to union(y.support, x.support)."""
+        cx = np.zeros(5)
+        cx[0] = 1.0
+        cy = np.zeros(5)
+        cy[4] = 1.0
+        x = boxcar_space.from_components(cx)
+        y = boxcar_space.from_components(cy)
+        expected_support = Function._union_supports(y.support, x.support)
+        result = boxcar_space.axpy(1.0, x, y)
+        assert result.support == expected_support
+
+    def test_multiply_zero_globally_supported_function_gives_empty_support(
+        self, fourier_space
+    ):
+        """multiply(0, f) → support=[] even when f has no compact support."""
+        coeffs = np.zeros(5)
+        coeffs[1] = 1.0
+        f = fourier_space.from_components(coeffs)
+        assert f.support is None  # globally supported basis
+        result = fourier_space.multiply(0.0, f)
+        assert result.support == []
+
+
+# =============================================================================
+# GaussianMeasure.from_covariance_matrix non-orthonormal basis regression test
+# =============================================================================
+
+
+class TestGaussianMeasureFromCovarianceMatrixNonOrthonormal:
+    """
+    Regression tests for GaussianMeasure.from_covariance_matrix with a
+    Lebesgue space backed by a non-orthonormal boxcar basis (Gram matrix G = h·I).
+
+    Bug: from_covariance_matrix was treating its input as the component-space
+    covariance E[ccᵀ] instead of the Galerkin covariance K_gal[i,j] = ⟨φᵢ, Cφⱼ⟩.
+    For spaces with G ≠ I this produced samples h× too large in std-dev,
+    because K_comp was set equal to K_gal rather than G⁻¹ K_gal G⁻¹.
+    """
+
+    @pytest.fixture
+    def boxcar_space(self):
+        """Lebesgue space with non-overlapping unit-height boxcar basis.
+
+        N=5 cells on [0, 1], cell width h = 0.2, Gram matrix G = 0.2 · I.
+        """
+        from intervalinf.providers import BoxCarFunctionProvider, CustomBasisProvider
+
+        N = 5
+        domain = IntervalDomain(0, 1)
+        space = Lebesgue(N, domain)
+        centers = np.linspace(0.1, 0.9, N)  # 0.1, 0.3, 0.5, 0.7, 0.9
+        boxcar_fp = BoxCarFunctionProvider(
+            space, centers=centers, default_width=0.2
+        )
+        basis_provider = CustomBasisProvider(space, boxcar_fp, basis_type="step")
+        space.set_basis_provider(basis_provider)
+        return space
+
+    def test_gram_matrix_is_diagonal_and_nonidentity(self, boxcar_space):
+        """Gram matrix G[i,j] = ⟨φᵢ, φⱼ⟩ should be (1/cell_width)·I for
+        non-overlapping normalized boxcars (height = 1/width, width = 0.2).
+
+        Normalized boxcars have height = 1/width so that ∫ φᵢ dx = 1, giving
+        G_ii = height² × width = (1/width)² × width = 1/width = 5.  The key
+        property under test is G ≠ I, which is what triggers the bug.
+        """
+        G = boxcar_space.metric
+        cell_width = 0.2
+        g_expected = (1.0 / cell_width) * np.eye(boxcar_space.dim)
+        np.testing.assert_allclose(
+            G,
+            g_expected,
+            atol=1e-2,  # numerical integration tolerance
+            err_msg="Gram matrix is not (1/cell_width)·I for normalized boxcars",
+        )
+        # Confirm G ≠ I so the bug is triggered
+        assert not np.allclose(G, np.eye(boxcar_space.dim))
+
+    def test_from_covariance_matrix_galerkin_round_trip(self, boxcar_space):
+        """from_covariance_matrix(M, K_gal) must produce samples whose empirical
+        Galerkin covariance E[⟨φᵢ, X⟩⟨φⱼ, X⟩] matches K_gal.
+
+        With K_gal = h²·I (unit component variance), the Galerkin covariance of
+        the generated measure should equal h²·I.  Before the fix the empirical
+        Galerkin covariance equalled h⁴·I (h× over-scaled in variance).
+        """
+        from pygeoinf.gaussian_measure import GaussianMeasure
+
+        np.random.seed(42)
+        M = boxcar_space
+        G = M.metric
+        g_diag = np.diag(G)  # [0.2, 0.2, 0.2, 0.2, 0.2]
+        h = g_diag[0]
+
+        # K_gal = h²·I: Galerkin covariance corresponding to unit component variance
+        K_gal = (h**2) * np.eye(M.dim)
+
+        measure = GaussianMeasure.from_covariance_matrix(M, K_gal)
+
+        # Draw samples and compute the empirical Galerkin covariance.
+        # For diagonal G: ⟨φᵢ, f⟩ = G_ii · comp_i  (since φᵢ is a basis vector
+        # with to_components returning the coefficient directly for diagonal G).
+        N_samples = 5000
+        samples = measure.samples(N_samples)
+        comps = np.array([M.to_components(s) for s in samples])  # (N_samples, N)
+        galerkin_ips = comps * g_diag[np.newaxis, :]  # ⟨φᵢ, sample⟩ for each draw
+        empirical_K_gal = np.cov(galerkin_ips.T)
+
+        np.testing.assert_allclose(
+            empirical_K_gal,
+            K_gal,
+            atol=3.0,  # ~6× std of estimator (σ ≈ 0.5 for K_gal=25·I, N=5000)
+            err_msg=(
+                "Empirical Galerkin covariance does not match K_gal. "
+                "from_covariance_matrix is not correctly interpreting its "
+                "input as the Galerkin representation (K_comp ≠ G⁻¹ K_gal G⁻¹)."
+            ),
+        )

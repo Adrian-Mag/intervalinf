@@ -258,6 +258,115 @@ class TestProviderDomainAccess:
         assert provider.space == space
 
 
+class TestFEMProviderSupport:
+    """Tests that FEM providers set support metadata on basis functions."""
+
+    def test_hat_provider_basis_function_has_compact_support(self):
+        """Each hat basis function should report compact support."""
+        from intervalinf.providers.functions import HatFunctionProvider
+
+        domain = IntervalDomain(0, 1)
+        provider = HatFunctionProvider(domain, n_nodes=6)
+        f = provider.get_function_by_index(2)
+        assert f.has_compact_support
+
+    def test_hat_provider_interior_node_support_interval(self):
+        """Interior hat function support should span two mesh intervals."""
+        from intervalinf.providers.functions import HatFunctionProvider
+
+        domain = IntervalDomain(0, 1)
+        n_nodes = 6  # nodes at 0, 0.2, 0.4, 0.6, 0.8, 1.0
+        provider = HatFunctionProvider(domain, n_nodes=n_nodes)
+        h = 1.0 / (n_nodes - 1)
+        f = provider.get_function_by_index(2)  # node at nodes[2]=0.4
+        # left_bound = nodes[1] = 1*h, right_bound = nodes[3] = 3*h
+        assert f.support is not None
+        left, right = f.support[0]
+        np.testing.assert_allclose(left, 1 * h, atol=1e-12)
+        np.testing.assert_allclose(right, 3 * h, atol=1e-12)
+
+    def test_hat_provider_left_boundary_node_support(self):
+        """Left boundary hat function support starts at domain left."""
+        from intervalinf.providers.functions import HatFunctionProvider
+
+        domain = IntervalDomain(0, 1)
+        provider = HatFunctionProvider(domain, n_nodes=6)
+        f = provider.get_function_by_index(0)  # node at 0.0
+        assert f.has_compact_support
+        left, right = f.support[0]
+        np.testing.assert_allclose(left, 0.0, atol=1e-12)
+
+    def test_hat_provider_right_boundary_node_support(self):
+        """Right boundary hat function support ends at domain right."""
+        from intervalinf.providers.functions import HatFunctionProvider
+
+        domain = IntervalDomain(0, 1)
+        n_nodes = 6
+        provider = HatFunctionProvider(domain, n_nodes=n_nodes)
+        f = provider.get_function_by_index(n_nodes - 1)  # last node at 1.0
+        assert f.has_compact_support
+        left, right = f.support[0]
+        np.testing.assert_allclose(right, 1.0, atol=1e-12)
+
+    def test_hat_provider_homogeneous_basis_has_compact_support(self):
+        """Hat provider with homogeneous=True also sets support."""
+        from intervalinf.providers.functions import HatFunctionProvider
+
+        domain = IntervalDomain(0, 1)
+        provider = HatFunctionProvider(domain, homogeneous=True, n_nodes=6)
+        f = provider.get_function_by_index(0)  # effective_index=1
+        assert f.has_compact_support
+
+    def test_spline_provider_basis_function_has_compact_support(self):
+        """Each spline basis function should report compact support."""
+        from intervalinf.providers.functions import SplineFunctionProvider
+
+        domain = IntervalDomain(0, 1)
+        provider = SplineFunctionProvider(domain)
+        f = provider.get_function_by_index(0, degree=3, n_knots=5)
+        assert f.has_compact_support
+
+    def test_spline_provider_support_is_finite_interval(self):
+        """Spline basis function support should be a finite interval."""
+        from intervalinf.providers.functions import SplineFunctionProvider
+
+        domain = IntervalDomain(0, 1)
+        provider = SplineFunctionProvider(domain)
+        f = provider.get_function_by_index(2, degree=3, n_knots=5)
+        assert f.support is not None
+        left, right = f.support[0]
+        assert left < right
+
+    def test_spline_provider_support_within_domain(self):
+        """Spline basis function support should be within [a, b]."""
+        from intervalinf.providers.functions import SplineFunctionProvider
+
+        domain = IntervalDomain(0, 1)
+        provider = SplineFunctionProvider(domain)
+        for idx in range(5):
+            f = provider.get_function_by_index(idx, degree=2, n_knots=4)
+            if f.has_compact_support:
+                left, right = f.support[0]
+                assert left >= 0.0
+                assert right <= 1.0
+
+    def test_spline_get_function_by_parameters_has_support(self):
+        """get_function_by_parameters should set support when possible."""
+        from intervalinf.providers.functions import SplineFunctionProvider
+
+        domain = IntervalDomain(0, 1)
+        provider = SplineFunctionProvider(domain)
+        degree = 3
+        knots = np.array(
+            [0.0] * (degree + 1)
+            + [0.25, 0.5, 0.75]
+            + [1.0] * (degree + 1)
+        )
+        params = {'degree': degree, 'knots': knots, 'index': 1}
+        f = provider.get_function_by_parameters(params)
+        assert f.has_compact_support
+
+
 class TestStandaloneFunctionAttachment:
     """Test attaching standalone functions to spaces."""
 

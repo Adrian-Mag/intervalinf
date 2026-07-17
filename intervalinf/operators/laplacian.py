@@ -101,7 +101,7 @@ class Laplacian(SpectralOperator):
 
     def get_eigenvalue(self, index: int) -> float:
         """Get the eigenvalue at a specific index."""
-        return self._alpha * self._spectrum_provider.get_eigenvalue(index)
+        return self._spectrum_provider.get_eigenvalue(index)
 
     def get_eigenfunction(self, index: int) -> Function:
         """Get the eigenfunction at a specific index."""
@@ -219,7 +219,8 @@ class Laplacian(SpectralOperator):
         bc_type = self._boundary_conditions.type  # type: ignore[arg-type]
 
         f_samples = create_uniform_samples(
-            f, domain_tuple, self._n_samples, bc_type  # type: ignore
+            f, domain_tuple, self._n_samples, bc_type,  # type: ignore
+            domain_obj=domain_interval
         )
 
         coefficients = fast_spectral_coefficients(
@@ -369,9 +370,9 @@ class InverseLaplacian(SpectralOperator):
 
         self._log = logging.getLogger(__name__)
         self._log.info(
-            "InverseLaplacian initialized: dofs=%s, fem_type=%s, alpha=%s",
+            "InverseLaplacian initialized: method=%s, dofs=%s, alpha=%s",
+            self._method,
             self._dofs,
-            self._fem_type,
             self._alpha,
         )
 
@@ -409,7 +410,8 @@ class InverseLaplacian(SpectralOperator):
         if bc_type == 'neumann' or bc_type == 'periodic':
             f_samples = create_uniform_samples(
                 f, domain_tuple,  # type: ignore
-                self._n_samples + 1, bc_type
+                self._n_samples + 1, bc_type,
+                domain_obj=domain_interval
             )
             coefficients = fast_spectral_coefficients(
                 f_samples, bc_type,  # type: ignore
@@ -418,7 +420,8 @@ class InverseLaplacian(SpectralOperator):
         else:
             f_samples = create_uniform_samples(
                 f, domain_tuple, self._n_samples,
-                bc_type  # type: ignore
+                bc_type,  # type: ignore
+                domain_obj=domain_interval
             )
             coefficients = fast_spectral_coefficients(
                 f_samples, bc_type,  # type: ignore

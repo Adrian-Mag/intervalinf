@@ -191,6 +191,10 @@ class RestrictedFunctionProvider(IndexedFunctionProvider):
         )
         return original_func.restrict(self._space_or_domain)
 
+    def __len__(self) -> int:
+        """Delegate length to the underlying provider."""
+        return len(self.original_provider)
+
 
 class ParametricFunctionProvider(FunctionProvider):
     """

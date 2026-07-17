@@ -336,6 +336,97 @@ class TestSpectralHelpers:
             validate_eigenvalue(-1.0, 0, allow_negative=False)
 
 
+class TestLaplacianAlphaScaling:
+    """Tests that Laplacian eigenvalues scale correctly with alpha.
+
+    These tests would have caught the double-alpha bug where
+    Laplacian.get_eigenvalue() multiplied alpha twice, producing
+    alpha² × geo(n) instead of the correct alpha × geo(n).
+    """
+
+    @pytest.fixture
+    def setup(self):
+        domain = IntervalDomain(0, np.pi)
+        bc = BoundaryConditions.dirichlet()
+        from intervalinf.operators import Laplacian, InverseLaplacian
+        return domain, bc, Laplacian, InverseLaplacian
+
+    def test_laplacian_eigenvalue_scales_linearly_with_alpha(self, setup):
+        """Laplacian eigenvalue must scale as alpha × geo(n), not alpha² × geo(n).
+
+        For Dirichlet on [0, π] with alpha, λ_k = alpha × k².
+        With alpha=4 the expected values are 4, 16, 36; not 16, 64, 144.
+        """
+        domain, bc, Laplacian, _ = setup
+        from intervalinf.core.config import IntegrationConfig
+        space = Lebesgue(100, domain, basis=None,
+                         integration_config=IntegrationConfig('simpson', 500))
+        for alpha in [2.0, 4.0, 10.0]:
+            lap = Laplacian(space, bc, alpha, method='spectral')
+            for k in range(1, 4):
+                expected = alpha * k ** 2   # single factor of alpha
+                actual = lap.get_eigenvalue(k - 1)
+                assert_allclose(actual, expected, rtol=1e-10,
+                                err_msg=f"alpha={alpha}, mode k={k}")
+
+    def test_inverse_laplacian_eigenvalue_scales_inversely_with_alpha(self, setup):
+        """InverseLaplacian eigenvalue must scale as 1/(alpha × geo(n)).
+
+        For Dirichlet on [0, π] with alpha, λ_k(L⁻¹) = 1/(alpha × k²).
+        """
+        domain, bc, _, InverseLaplacian = setup
+        from intervalinf.core.config import IntegrationConfig
+        space = Lebesgue(100, domain, basis=None,
+                         integration_config=IntegrationConfig('simpson', 500))
+        for alpha in [2.0, 4.0, 10.0]:
+            inv_lap = InverseLaplacian(space, bc, alpha, method='spectral')
+            for k in range(1, 4):
+                expected = 1.0 / (alpha * k ** 2)
+                actual = inv_lap.get_eigenvalue(k - 1)
+                assert_allclose(actual, expected, rtol=1e-10,
+                                err_msg=f"alpha={alpha}, mode k={k}")
+
+    def test_laplacian_inverse_laplacian_eigenvalue_product_is_unity(self, setup):
+        """Product of Laplacian and InverseLaplacian eigenvalues must be 1.
+
+        L.get_eigenvalue(n) × L⁻¹.get_eigenvalue(n) == 1 for all n and alpha.
+        """
+        domain, bc, Laplacian, InverseLaplacian = setup
+        from intervalinf.core.config import IntegrationConfig
+        space = Lebesgue(100, domain, basis=None,
+                         integration_config=IntegrationConfig('simpson', 500))
+        for alpha in [1.0, 2.0, 4.0, 10.0]:
+            lap = Laplacian(space, bc, alpha, method='spectral')
+            inv_lap = InverseLaplacian(space, bc, alpha, method='spectral')
+            for n in range(4):
+                product = lap.get_eigenvalue(n) * inv_lap.get_eigenvalue(n)
+                assert_allclose(product, 1.0, rtol=1e-10,
+                                err_msg=f"alpha={alpha}, mode n={n}")
+
+    def test_laplacian_inverse_laplacian_roundtrip_on_eigenfunction(self, setup):
+        """L(L⁻¹(φ_n)) ≈ φ_n for any alpha ≠ 1.
+
+        This is the functional round-trip test: applying the inverse then the
+        forward operator must return the original function.
+        """
+        domain, bc, Laplacian, InverseLaplacian = setup
+        from intervalinf.core.config import IntegrationConfig
+        space = Lebesgue(100, domain, basis=None,
+                         integration_config=IntegrationConfig('simpson', 500))
+        x = np.linspace(0.05, np.pi - 0.05, 200)
+        for alpha in [2.0, 4.0]:
+            lap = Laplacian(space, bc, alpha, method='spectral', dofs=60)
+            inv_lap = InverseLaplacian(space, bc, alpha, method='spectral', dofs=60)
+            phi0 = lap.get_eigenfunction(0)
+            phi0_vals = np.array(phi0.evaluate(x))
+            result_vals = np.array(lap(inv_lap(phi0)).evaluate(x))
+            # ratio should be 1 everywhere; ignore near-zero points
+            mask = np.abs(phi0_vals) > 0.05 * np.max(np.abs(phi0_vals))
+            assert_allclose(result_vals[mask] / phi0_vals[mask],
+                            np.ones(mask.sum()), rtol=1e-2,
+                            err_msg=f"Round-trip failed for alpha={alpha}")
+
+
 class TestProviderRadialImports:
     """Test that radial providers can be imported."""
 

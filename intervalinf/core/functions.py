@@ -22,6 +22,11 @@ from typing import TYPE_CHECKING, Callable, Optional, Union
 
 import numpy as np
 
+from intervalinf.core.materialization import (
+    Materialization,
+    RepresentationSpec,
+)
+
 if TYPE_CHECKING:
     from intervalinf.core.domain import IntervalDomain
 
@@ -145,10 +150,21 @@ class Function:
         self.support = self._check_support(support)
 
         # Function representation
-        self.coefficients = (
+        self._coefficients = (
             coefficients.copy() if coefficients is not None else None
         )
         self.evaluate_callable = evaluate_callable
+        self._materializations: dict[RepresentationSpec, Materialization] = {}
+
+    @property
+    def coefficients(self) -> Optional[np.ndarray]:
+        """Basis expansion coefficients (or None)."""
+        return self._coefficients
+
+    @coefficients.setter
+    def coefficients(self, value: Optional[np.ndarray]) -> None:
+        self._coefficients = value
+        self._materializations.clear()
 
     # ================================================================
     # Space/Domain Properties
@@ -173,6 +189,7 @@ class Function:
         else:
             self._space = value
             self._domain = None
+        self.clear_materializations()
 
     @property
     def function_domain(self) -> "IntervalDomain":
@@ -247,9 +264,14 @@ class Function:
 
         # Check domain compatibility
         my_domain = self.function_domain
-        if not (space_domain.a == my_domain.a and space_domain.b == my_domain.b):
+        same_interval = (
+            space_domain.a == my_domain.a
+            and space_domain.b == my_domain.b
+        )
+        if not same_interval:
             raise ValueError(
-                f"Domain mismatch: function domain [{my_domain.a}, {my_domain.b}] "
+                f"Domain mismatch: function domain "
+                f"[{my_domain.a}, {my_domain.b}] "
                 f"!= space domain [{space_domain.a}, {space_domain.b}]"
             )
 
@@ -445,6 +467,41 @@ class Function:
                 vectorized=vectorized,
             )
 
+    def materialize(self, spec: RepresentationSpec) -> Materialization:
+        """Materialize the function on a concrete representation grid."""
+        cached = self.get_materialized(spec)
+        if cached is not None:
+            return cached
+
+        if spec.kind != "fixed_grid" or spec.method != "uniform":
+            raise NotImplementedError(
+                "Only uniform fixed-grid materialization is supported"
+            )
+
+        restricted_domain = self.function_domain.restriction_to_subinterval(
+            *spec.interval
+        )
+        grid = restricted_domain.uniform_mesh(spec.n_points)
+        values = self._evaluate_on_grid(grid)
+
+        materialization = Materialization(
+            spec=spec,
+            grid=np.asarray(grid, dtype=float),
+            values=np.asarray(values, dtype=float),
+        )
+        self._materializations[spec] = materialization
+        return materialization
+
+    def get_materialized(
+        self, spec: RepresentationSpec
+    ) -> Optional[Materialization]:
+        """Return a cached materialization if one exists."""
+        return self._materializations.get(spec)
+
+    def clear_materializations(self) -> None:
+        """Clear all cached materializations for this function."""
+        self._materializations.clear()
+
     def plot(
         self,
         n_points: int = 1000,
@@ -502,7 +559,9 @@ class Function:
     def copy(self) -> "Function":
         """Create a copy of this function, preserving space/domain context."""
         # Determine what to pass as first arg: space or domain
-        space_or_domain = self._space if self._space is not None else self._domain
+        space_or_domain = (
+            self._space if self._space is not None else self._domain
+        )
 
         if self.coefficients is not None:
             return self.__class__(
@@ -554,6 +613,29 @@ class Function:
         result = np.tensordot(coeffs, basis_evals, axes=([0], [0]))
         return result[0] if is_scalar else result
 
+    def _evaluate_on_grid(self, grid: np.ndarray) -> np.ndarray:
+        """Evaluate robustly on a 1D grid, falling back to pointwise calls."""
+        return self._coerce_values_for_grid(
+            lambda x: self.evaluate(x, check_domain=False),
+            grid,
+        )
+
+    @staticmethod
+    def _coerce_values_for_grid(evaluator, grid: np.ndarray) -> np.ndarray:
+        """Coerce callable output to a 1D array matching a grid."""
+        try:
+            values = np.asarray(evaluator(grid), dtype=float)
+            if values.shape == grid.shape:
+                return values
+            if values.ndim == 1 and values.size == grid.size:
+                return values.reshape(grid.shape)
+            raise ValueError("grid evaluation returned incompatible shape")
+        except Exception:
+            return np.asarray(
+                [evaluator(x) for x in grid],
+                dtype=float,
+            )
+
     def _is_zero_at(
         self, x: Union[float, np.ndarray]
     ) -> Union[bool, np.ndarray]:
@@ -599,8 +681,17 @@ class Function:
     @staticmethod
     def _intersect_supports(support1, support2):
         """Compute intersection of two support specifications."""
-        if support1 is None or support2 is None:
+        # `None` denotes global support. Intersecting global support with a
+        # compact support should preserve the compact support; only the
+        # intersection of two global supports remains global.
+        if support1 == [] or support2 == []:
+            return []
+        if support1 is None and support2 is None:
             return None
+        if support1 is None:
+            return list(support2)
+        if support2 is None:
+            return list(support1)
 
         intersections = []
         for a1, b1 in support1:
@@ -719,7 +810,9 @@ class Function:
             ):
                 new_coeffs = op(self.coefficients, other.coefficients)
                 return self.__class__(
-                    result_context, coefficients=new_coeffs, support=new_support
+                    result_context,
+                    coefficients=new_coeffs,
+                    support=new_support,
                 )
             else:
                 # Create callable-based result
@@ -750,7 +843,9 @@ class Function:
 
         elif scalar_allowed and isinstance(other, numbers.Number):
             # Preserve self's context (space or domain)
-            result_context = self._space if self._space is not None else self._domain
+            result_context = (
+                self._space if self._space is not None else self._domain
+            )
 
             def scalar_op_callable(x):
                 return op(self.evaluate(x), other)
@@ -783,7 +878,9 @@ class Function:
     def __rsub__(self, other):
         # other - self
         if isinstance(other, numbers.Number):
-            result_context = self._space if self._space is not None else self._domain
+            result_context = (
+                self._space if self._space is not None else self._domain
+            )
 
             def rsub_callable(x):
                 # ensure numeric/array-compatible subtraction
@@ -805,12 +902,16 @@ class Function:
         ):
             new_support = self._intersect_supports(self.support, other.support)
             if new_support is None or len(new_support) == 0:
-                result_context = self._space if self._space is not None else self._domain
+                result_context = (
+                    self._space if self._space is not None else self._domain
+                )
 
                 def zero_callable(x):
                     return np.zeros_like(np.asarray(x), dtype=float)
 
-                return Function(result_context, evaluate_callable=zero_callable)
+                return Function(
+                    result_context, evaluate_callable=zero_callable, support=[]
+                )
 
         return self._binary_op(
             other,
@@ -825,7 +926,9 @@ class Function:
 
     def __neg__(self):
         """Negation: -f."""
-        result_context = self._space if self._space is not None else self._domain
+        result_context = (
+            self._space if self._space is not None else self._domain
+        )
 
         if self.coefficients is not None:
             return self.__class__(
@@ -888,11 +991,18 @@ class Function:
             )
             raise ValueError(msg)
 
+        new_support = None
+        if self.support is not None:
+            restricted_domain_support = [(rest_domain.a, rest_domain.b)]
+            new_support = self._intersect_supports(
+                self.support, restricted_domain_support
+            )
+
         return Function(
             restricted_space,
             evaluate_callable=self.evaluate_callable,
             name=f"{self.name}_restricted" if self.name else None,
-            support=None,
+            support=new_support,
         )
 
     def __repr__(self) -> str:

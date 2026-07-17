@@ -9,6 +9,16 @@ from dataclasses import dataclass, field
 from typing import Literal
 import copy as copy_module
 
+# Methods that build a fixed-point mesh and are therefore amenable to
+# automatic batching (Phase 4).  Changing this set is the only thing
+# needed to opt a new method into future accelerated paths.
+FIXED_GRID_METHODS: frozenset = frozenset({"simpson", "trapz"})
+
+# Methods that delegate entirely to scipy.integrate.quad (adaptive).
+# 'quad' is the legacy name; 'adaptive' is the canonical name. Both are
+# supported wherever integration methods are accepted.
+ADAPTIVE_METHODS: frozenset = frozenset({"adaptive", "quad"})
+
 
 @dataclass
 class IntegrationConfig:
@@ -17,20 +27,43 @@ class IntegrationConfig:
 
     Parameters
     ----------
-    method : {'simpson', 'trapz', 'quad'}
+    method : {'simpson', 'trapz', 'adaptive', 'quad'}
         Integration method.
+
+        - ``'simpson'`` / ``'trapz'`` — fixed-grid quadrature rules that
+          build a uniform mesh of *n_points* nodes.  These are
+          **fixed-grid** methods that are candidates for automatic batched
+          acceleration (Phase 4).
+        - ``'adaptive'`` — delegates to ``scipy.integrate.quad`` for
+          adaptive error-controlled integration.  Using this method means
+          ``n_points`` is ignored.
+        - ``'quad'`` — **alias** for ``'adaptive'`` kept for backward
+          compatibility.  New code should prefer ``'adaptive'``.
+
     n_points : int
-        Number of quadrature points for simpson/trapz.
+        Number of quadrature points.  Applies only to fixed-grid methods
+        (``'simpson'`` and ``'trapz'``); ignored for adaptive methods.
 
     Examples
     --------
     >>> config = IntegrationConfig()  # defaults
     >>> config = IntegrationConfig(n_points=10000)
     >>> high_acc = IntegrationConfig.high_accuracy()
+    >>> adapt = IntegrationConfig.adaptive_quad()
     """
 
-    method: Literal["simpson", "trapz", "quad"] = "simpson"
+    method: Literal["simpson", "trapz", "adaptive", "quad"] = "simpson"
     n_points: int = 1000
+
+    @property
+    def is_fixed_grid(self) -> bool:
+        """True if this method builds a fixed-point mesh (batchable in Phase 4)."""
+        return self.method in FIXED_GRID_METHODS
+
+    @property
+    def is_adaptive(self) -> bool:
+        """True if this method uses adaptive (scipy.integrate.quad) integration."""
+        return self.method in ADAPTIVE_METHODS
 
     def copy(self, **overrides) -> "IntegrationConfig":
         """Create a copy with optional parameter overrides."""
@@ -51,6 +84,11 @@ class IntegrationConfig:
     def fast(cls) -> "IntegrationConfig":
         """Preset for fast, lower-accuracy integration."""
         return cls(method="trapz", n_points=500)
+
+    @classmethod
+    def adaptive_quad(cls) -> "IntegrationConfig":
+        """Preset for adaptive (scipy.integrate.quad) integration."""
+        return cls(method="adaptive")
 
     @classmethod
     def adaptive(cls, dim: int) -> "IntegrationConfig":

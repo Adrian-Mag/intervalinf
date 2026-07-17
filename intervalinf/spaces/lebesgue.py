@@ -10,9 +10,9 @@ the interval [a,b] with the standard inner product:
 
     ⟨u, v⟩ = ∫_a^b u(x) v(x) dx
 
-or with a weight function w(x):
-
-    ⟨u, v⟩_w = ∫_a^b u(x) v(x) w(x) dx
+For a *weighted* inner product ⟨u, v⟩_w = ∫_a^b u(x) v(x) w(x) dx, use
+`WeightedLebesgue` (in `weighted_lebesgue.py`), which realizes the weight through
+a `MassWeightedHilbertSpace` mass operator so the Riesz maps stay weight-consistent.
 
 This module provides:
 - `Lebesgue`: The main L² space class
@@ -42,6 +42,7 @@ from intervalinf.core.config import (
     ParallelConfig,
 )
 from intervalinf.core.functions import Function
+from intervalinf.core.materialization import RepresentationSpec
 from intervalinf.spaces.forms import LinearFormKernel
 from intervalinf.providers.base import BasisProvider
 
@@ -50,7 +51,6 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from intervalinf.core.domain import IntervalDomain
-    from intervalinf.providers.base import BasisProvider
 
 
 # =============================================================================
@@ -198,16 +198,27 @@ class Lebesgue(HilbertSpace):
     class, using Function objects as the Vector type. It provides:
 
     - L² inner product and norm via integration
-    - Basis function management (Fourier, hat functions, etc.)
+    - Basis-free functional operations on callable Function objects
+    - Optional basis function management (Fourier, hat functions, etc.)
     - Function evaluation and coefficient transformations
     - Proper dual space relationships via Riesz representation
     - Full integration with pygeoinf operators and linear forms
 
     The mathematical foundation is the Lebesgue space L²([a,b]) with the
-    standard inner product defined by integration.
+    standard inner product defined by integration. Computationally, the class
+    supports two modes:
+
+    1. Basis-free mode (`basis='none'` or `basis=None`), where functions are
+       manipulated directly through evaluation and quadrature without an
+       explicit finite-dimensional basis representation.
+    2. Basis-backed mode, where `dim` basis functions are used for projection,
+       coefficient transforms, Gram matrices, and related spectral/FEM-style
+       workflows.
 
     Attributes:
-        dim: Dimension of the finite-dimensional approximation.
+        dim: Number of basis functions available when a basis-backed workflow
+            is used. In basis-free mode this can be zero and does not control
+            direct function-evaluation/integration operations.
         function_domain: The IntervalDomain [a, b].
         integration: Hierarchical integration configuration.
         parallel: Hierarchical parallelization configuration.
@@ -216,10 +227,15 @@ class Lebesgue(HilbertSpace):
         >>> from intervalinf.core import IntervalDomain
         >>> from intervalinf.spaces import Lebesgue
         >>> domain = IntervalDomain(0, 1)
+        >>> space = Lebesgue(0, domain, basis=None)
+        >>> # Use callable Functions directly in a basis-free workflow
+        >>> f = Function(space, evaluate_callable=lambda x: x**2)
+        >>> norm = space.norm(f)
+
+        >>> # Or opt into a basis-backed representation
         >>> space = Lebesgue(50, domain, basis='fourier')
-        >>> # Create a function in this space
+        >>> # Create a function from basis coefficients
         >>> f = space.from_components(np.random.randn(50))
-        >>> # Compute L² norm
         >>> norm = space.norm(f)
     """
 
@@ -230,7 +246,6 @@ class Lebesgue(HilbertSpace):
         /,
         *,
         basis: Optional[Union[str, list]] = None,
-        weight: Optional[Callable] = None,
         integration_config: Optional[Union[
             IntegrationConfig,
             LebesgueIntegrationConfig
@@ -244,23 +259,28 @@ class Lebesgue(HilbertSpace):
         Initialize a Lebesgue space L²([a,b]).
 
         Args:
-            dim: Dimension of the finite-dimensional approximation space.
+            dim: Number of basis functions for basis-backed workflows.
+                This may be zero when using the space in basis-free mode with
+                `basis=None`/`'none'`.
             function_domain: IntervalDomain object specifying [a,b] and
                 boundary conditions.
             basis: Basis specification, can be:
                 - str: 'fourier', 'hat', 'sine', 'cosine', 'DN', 'ND', etc.
-                - str: 'none' (creates baseless space for temporary use)
+                - str: 'none' (basis-free functional mode)
                 - list: [func1, func2, ...] (custom callable functions)
-                - None: defaults to 'none'
-            weight: Optional weight function w(x) for weighted L² space.
+                - None: defaults to 'none' (basis-free functional mode)
             integration_config: Hierarchical integration configuration.
                 Can be IntegrationConfig (same for all) or
                 LebesgueIntegrationConfig (per-subsystem).
             parallel_config: Hierarchical parallelization configuration.
 
         Example:
-            >>> # Simple usage with defaults
-            >>> space = Lebesgue(50, domain)
+            >>> # Basis-free functional usage
+            >>> space = Lebesgue(0, domain, basis=None)
+            >>> f = Function(space, evaluate_callable=lambda x: x)
+            >>> value = space.norm(f)
+
+            >>> # Basis-backed usage
             >>> space = Lebesgue(50, domain, basis='sine')
 
             >>> # With hierarchical configs
@@ -272,7 +292,6 @@ class Lebesgue(HilbertSpace):
         """
         self._dim = dim
         self._function_domain = function_domain
-        self._weight = weight
 
         # Integration configuration (hierarchical)
         if integration_config is None:
@@ -307,7 +326,7 @@ class Lebesgue(HilbertSpace):
 
     @property
     def dim(self) -> int:
-        """The finite dimension of the space."""
+        """Number of basis functions configured for basis-backed operations."""
         return self._dim
 
     # ================================================================
@@ -413,7 +432,14 @@ class Lebesgue(HilbertSpace):
 
     def from_dual(self, xp: LinearForm) -> 'Function':
         """
-        Map a dual element back to a function.
+        Map a dual element back to a function via the Riesz isomorphism.
+
+        For a ``LinearFormKernel`` the kernel function is returned directly
+        (it already IS the L² Riesz representative).
+
+        For a generic ``LinearForm`` with component vector ``c``, the Riesz
+        representative satisfies ``⟨f, g⟩ = φ(g)`` for all ``g``, i.e.
+        ``f_comp^T G g_comp = c^T g_comp``, giving ``f_comp = G⁻¹ c``.
 
         Args:
             xp: A LinearForm (typically LinearFormKernel).
@@ -428,8 +454,11 @@ class Lebesgue(HilbertSpace):
             else:
                 raise ValueError("LinearFormKernel has no kernel")
         else:
-            # For generic LinearForm, use components
-            return self.from_components(xp.components)
+            # Generic LinearForm: components c represent φ(φᵢ) = cᵢ.
+            # Riesz representative has components G⁻¹ c.
+            return self.from_components(
+                np.linalg.solve(self.metric, xp.components)
+            )
 
     # ================================================================
     # Coefficient transformations
@@ -441,12 +470,17 @@ class Lebesgue(HilbertSpace):
 
         Computes c_i = ⟨φᵢ, f⟩ / ⟨φᵢ, φᵢ⟩ for each basis function.
 
+        For a basis-free space (dim=0, basis=None) this always returns an
+        empty array of length 0.
+
         Args:
             f: A Function to project.
 
         Returns:
             Coefficient array of length dim.
         """
+        if self._dim == 0:
+            return np.zeros(0)
         self._require_basis()
 
         # If function already has coefficients and is in this space, use them
@@ -472,12 +506,31 @@ class Lebesgue(HilbertSpace):
         """
         Construct a function from its basis coefficients.
 
+        Infers compact support from the active (non-negligible) basis
+        functions.  A basis function is considered active when
+        ``|cᵢ| > tol`` where ``tol = 1e-14``.
+
+        - If all coefficients are within tolerance → ``support=[]``.
+        - If any active basis function has ``support=None`` (globally
+          supported) → ``support=None``.
+        - Otherwise → union of the active basis-function supports.
+
+        For a basis-free space (dim=0, basis=None) the only valid input is an
+        empty array; this returns the zero function.
+
         Args:
             coefficients: Array of length dim.
 
         Returns:
-            Function f = Σ cᵢ φᵢ.
+            Function f = Σ cᵢ φᵢ with inferred support metadata.
         """
+        if self._dim == 0:
+            if len(coefficients) != 0:
+                raise ValueError(
+                    f"Expected 0 coefficients for basis-free space, "
+                    f"got {len(coefficients)}"
+                )
+            return self.zero
         self._require_basis()
 
         if len(coefficients) != self.dim:
@@ -485,7 +538,27 @@ class Lebesgue(HilbertSpace):
                 f"Expected {self.dim} coefficients, got {len(coefficients)}"
             )
 
-        return Function(self, coefficients=coefficients.copy())
+        tol = 1e-14
+        active_intervals = []
+        inferred_support = []  # default: empty (all-zero)
+
+        for i, c in enumerate(coefficients):
+            if abs(c) > tol:
+                bf_support = self.get_basis_function(i).support
+                if bf_support is None:
+                    # Globally-supported basis function → no compact support
+                    inferred_support = None
+                    break
+                active_intervals.extend(bf_support)
+
+        if inferred_support is not None and active_intervals:
+            inferred_support = Function._union_supports([], active_intervals)
+
+        return Function(
+            self,
+            coefficients=coefficients.copy(),
+            support=inferred_support,
+        )
 
     # ================================================================
     # Equality and properties
@@ -503,28 +576,38 @@ class Lebesgue(HilbertSpace):
 
     @property
     def zero(self) -> 'Function':
-        """The zero function in this space."""
-        return Function(self, evaluate_callable=lambda x: np.zeros_like(x))
+        """The zero function in this space (support=[])."""
+        return Function(
+            self,
+            evaluate_callable=lambda x: np.zeros_like(x, dtype=float),
+            support=[],
+        )
 
     # ================================================================
     # Vector space operations (override for coefficient consistency)
     # ================================================================
 
     def multiply(self, a: float, x: 'Function') -> 'Function':
-        """Compute scalar multiplication a*x."""
+        """Compute scalar multiplication a*x, propagating support."""
         if hasattr(x, 'coefficients') and x.coefficients is not None:
             new_coefficients = a * x.coefficients
-            return Function(self, coefficients=new_coefficients.copy())
+            new_support = [] if a == 0 else x.support
+            return Function(
+                self, coefficients=new_coefficients.copy(), support=new_support
+            )
         else:
             return a * x
 
     def add(self, x: 'Function', y: 'Function') -> 'Function':
-        """Compute vector addition x + y."""
+        """Compute vector addition x + y, propagating support as union."""
         x_has = hasattr(x, 'coefficients') and x.coefficients is not None
         y_has = hasattr(y, 'coefficients') and y.coefficients is not None
         if x_has and y_has:
             new_coefficients = x.coefficients + y.coefficients
-            return Function(self, coefficients=new_coefficients.copy())
+            new_support = Function._union_supports(x.support, y.support)
+            return Function(
+                self, coefficients=new_coefficients.copy(), support=new_support
+            )
         else:
             return x + y
 
@@ -532,6 +615,9 @@ class Lebesgue(HilbertSpace):
         """Perform in-place scaling x := a*x."""
         if hasattr(x, 'coefficients') and x.coefficients is not None:
             x.coefficients *= a
+            if a == 0:
+                x.support = []
+            x.clear_materializations()
         else:
             raise ValueError(
                 "Cannot perform in-place operation on function "
@@ -539,11 +625,14 @@ class Lebesgue(HilbertSpace):
             )
 
     def axpy(self, a: float, x: 'Function', y: 'Function') -> 'Function':
-        """Perform y := y + a*x and return result."""
+        """Performs y := y + a*x in-place, updating support to union(y, x)."""
         y_has = hasattr(y, 'coefficients') and y.coefficients is not None
         x_has = hasattr(x, 'coefficients') and x.coefficients is not None
         if y_has and x_has:
             y.coefficients += a * x.coefficients
+            if a != 0:
+                y.support = Function._union_supports(y.support, x.support)
+            y.clear_materializations()
             return y
         else:
             return self.add(y, self.multiply(a, x))
@@ -585,7 +674,6 @@ class Lebesgue(HilbertSpace):
             self.dim,
             subdomain,
             basis='none',
-            weight=self._weight
         )
 
         # Copy configs
@@ -607,7 +695,6 @@ class Lebesgue(HilbertSpace):
         /,
         *,
         basis: Optional[Union[str, list]] = None,
-        weight: Optional[Callable] = None,
         dim_per_subspace: Optional[list] = None,
         basis_per_subspace: Optional[list] = None,
         integration_config: Optional[IntegrationConfig] = None,
@@ -625,7 +712,6 @@ class Lebesgue(HilbertSpace):
             function_domain: The full interval domain.
             discontinuity_points: Points where discontinuities occur.
             basis: Basis type for all subspaces.
-            weight: Weight function for inner product.
             dim_per_subspace: Optional dimensions per subspace.
             basis_per_subspace: Optional basis per subspace.
             integration_config: Integration config for all subspaces.
@@ -681,7 +767,7 @@ class Lebesgue(HilbertSpace):
         # Create subspaces
         subspaces = [
             cls(
-                d, subdomain, basis=b, weight=weight,
+                d, subdomain, basis=b,
                 integration_config=integration_config,
                 parallel_config=parallel_config
             )
@@ -835,11 +921,49 @@ class Lebesgue(HilbertSpace):
     ) -> float:
         """Compute continuous L² inner product via integration."""
         product = u * v
-        return product.integrate(
-            method=self.integration_method,
+        method = self.integration_method
+        if method not in {"simpson", "trapz"} or product.has_compact_support:
+            return product.integrate(
+                method=method,
+                n_points=self.integration_npoints,
+            )
+
+        spec = RepresentationSpec(
+            kind="fixed_grid",
             n_points=self.integration_npoints,
-            weight=self._weight
+            interval=(self.function_domain.a, self.function_domain.b),
+            method="uniform",
         )
+        u_materialized = u.materialize(spec)
+        v_materialized = v.materialize(spec)
+        integrand = u_materialized.values * v_materialized.values
+
+        return float(
+            self._integrate_fixed_grid(
+                integrand,
+                u_materialized.grid,
+                method,
+            )
+        )
+
+    @staticmethod
+    def _integrate_fixed_grid(
+        values: np.ndarray,
+        grid: np.ndarray,
+        method: str,
+    ) -> float:
+        """Integrate array values on a fixed grid with the configured rule."""
+        if method == "simpson":
+            from scipy.integrate import simpson
+
+            return float(simpson(values, x=grid))
+
+        try:
+            from scipy.integrate import trapezoid as trapz
+        except ImportError:
+            from scipy.integrate import trapz  # type: ignore
+
+        return float(trapz(values, x=grid))
 
     def _compute_metric(self):
         """Compute and cache the metric tensor (Gram matrix)."""
@@ -1130,7 +1254,6 @@ class PartitionedLebesgueSpace:
             ParallelConfig,
             LebesgueParallelConfig
         ]] = None,
-        weight: Optional[Callable] = None,
     ):
         """Initialize a PartitionedLebesgueSpace."""
         self.full_domain = full_domain
@@ -1161,7 +1284,7 @@ class PartitionedLebesgueSpace:
             self.unknown_intervals, dims, region_bases
         ):
             space = Lebesgue(
-                dim, interval, basis=region_basis, weight=weight,
+                dim, interval, basis=region_basis,
                 integration_config=integration_config,
                 parallel_config=parallel_config,
             )
