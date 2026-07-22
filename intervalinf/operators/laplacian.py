@@ -1,7 +1,7 @@
 """Laplacian and inverse Laplacian operators for interval domains."""
 
 import logging
-from typing import Union, Optional, Literal, List
+from typing import Union, Optional, Literal
 
 import numpy as np
 
@@ -509,12 +509,6 @@ class InverseLaplacian(SpectralOperator):
 
     def get_eigenvalue(self, index: int) -> float:
         return self._spectrum_provider.get_eigenvalue(index)
-
-    def get_eigenvalues(self, indices: List[int]) -> List[float]:
-        return [
-            self._spectrum_provider.get_eigenvalue(i)
-            for i in indices
-        ]
 
     def get_eigenfunction(self, index: int) -> Function:
         if isinstance(self._domain, Sobolev):

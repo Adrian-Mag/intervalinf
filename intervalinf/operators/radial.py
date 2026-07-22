@@ -663,10 +663,6 @@ class InverseRadialLaplacian(SpectralOperator):
                 "Eigenfunctions not available for FEM method"
             )
 
-    def get_eigenvalues(self, indices) -> np.ndarray:
-        """Get multiple eigenvalues."""
-        return np.array([self.get_eigenvalue(i) for i in indices])
-
     def _apply(self, f: Function) -> Function:
         """Apply the inverse radial Laplacian to a function."""
         if self._method == 'spectral':

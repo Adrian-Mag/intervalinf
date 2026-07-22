@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 
+import numpy as np
 from pygeoinf.linear_operators import LinearOperator
 
 from intervalinf.core.functions import Function
@@ -94,3 +95,32 @@ class SpectralOperator(LinearOperator, ABC):
             Result of applying the operator: L(f)
         """
         pass
+
+    def get_eigenvalues(self, indices: np.ndarray) -> np.ndarray:
+        """Get eigenvalues for a one-dimensional array of indices.
+
+        Args:
+            indices: One-dimensional array of zero-based eigenvalue indices.
+
+        Returns:
+            One-dimensional array of eigenvalues in the same order as
+            ``indices``.
+        """
+
+        return np.asarray(
+            [self.get_eigenvalue(index) for index in indices],
+            dtype=float,
+        )
+
+    def get_eigenfunctions(self, indices: np.ndarray) -> list[Function]:
+        """Get eigenfunctions for a one-dimensional array of indices.
+
+        Args:
+            indices: One-dimensional array of zero-based eigenfunction
+                indices.
+
+        Returns:
+            List of eigenfunctions in the same order as ``indices``.
+        """
+
+        return [self.get_eigenfunction(index) for index in indices]
