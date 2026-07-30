@@ -149,7 +149,14 @@ from intervalinf.operators import BesselSobolev, Laplacian, SOLAOperator
 from intervalinf.sampling import KLSampler
 ```
 
-The notebooks in [`demos/`](demos/) provide longer examples.
+The notebooks in [`demos/`](demos/) provide longer examples, including the
+synthetic [DLI vs BG polyhedral comparison](demos/convex_analysis/dli_vs_bg_polyhedral_comparison.ipynb),
+which contrasts deterministic linear inference and Backus--Gilbert admissible
+regions on the same two-property problem, and a
+[multi-data Minkowski-region study](demos/convex_analysis/bg_with_errors_minkowski_multi_nd.ipynb)
+of Backus--Gilbert confidence regions. The
+[deterministic linear inference walkthrough](demos/convex_analysis/dli.ipynb)
+shows componentwise admissible-property bounds in a continuous Lebesgue space.
 
 ## License
 
