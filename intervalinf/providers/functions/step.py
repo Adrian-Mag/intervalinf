@@ -102,11 +102,17 @@ class BoxCarFunctionProvider(
             return result
 
         name_suffix = "_normalized" if normalize else f"_h{height:.3f}"
+        breakpoints = tuple(
+            point
+            for point in (a_support, b_support)
+            if self.domain.a < point < self.domain.b
+        )
         return Function(
             self.function_context,
             evaluate_callable=boxcar_func,
             name=f'boxcar_c{center:.3f}_w{width:.3f}{name_suffix}',
-            support=(a_support, b_support)
+            support=(a_support, b_support),
+            breakpoints=breakpoints,
         )
 
     def get_function_by_index(
@@ -246,7 +252,12 @@ class DiscontinuousFunctionProvider(RandomFunctionProvider):
         return Function(
             self.function_context,
             evaluate_callable=discontinuous_func,
-            name=f'discontinuous_{n_discontinuities}'
+            name=f'discontinuous_{n_discontinuities}',
+            breakpoints=tuple(
+                float(location)
+                for location in disc_locations
+                if a < location < b
+            ),
         )
 
     # Alias for consistency with RandomFunctionProvider interface

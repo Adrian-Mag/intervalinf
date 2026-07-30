@@ -15,6 +15,7 @@ from intervalinf.core import (
     IntegrationConfig,
     IntervalDomain,
     ParallelConfig,
+    QuadratureRule,
 )
 
 # Spaces (depend on pygeoinf for base classes)
@@ -40,6 +41,7 @@ __all__ = [
     "Function",
     "IntegrationConfig",
     "ParallelConfig",
+    "QuadratureRule",
     # Spaces (Level 2)
     "Lebesgue",
     "LebesgueSpaceDirectSum",

@@ -17,6 +17,7 @@ from intervalinf.core.config import (
     LebesgueIntegrationConfig,
     LebesgueParallelConfig,
 )
+from intervalinf.core.quadrature import QuadratureRule
 
 __all__ = [
     "IntervalDomain",
@@ -26,4 +27,5 @@ __all__ = [
     "ParallelConfig",
     "LebesgueIntegrationConfig",
     "LebesgueParallelConfig",
+    "QuadratureRule",
 ]

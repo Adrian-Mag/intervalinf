@@ -26,6 +26,7 @@ from intervalinf.core.materialization import (
     Materialization,
     RepresentationSpec,
 )
+from intervalinf.core.quadrature import QuadratureRule, canonicalize_breakpoints
 
 if TYPE_CHECKING:
     from intervalinf.core.domain import IntervalDomain
@@ -79,6 +80,10 @@ class Function:
         - tuple (a, b): single interval where function is nonzero
         - list of tuples: multiple disjoint intervals
         - None: function has support over entire domain
+    breakpoints : iterable of float, optional
+        Conservative interior quadrature split points. They need not all be
+        physical jumps, but are retained by derived functions so split rules
+        can avoid sampling declared joins.
 
     Notes
     -----
@@ -118,6 +123,7 @@ class Function:
         evaluate_callable: Optional[Callable] = None,
         name: Optional[str] = None,
         support: Optional[Union[tuple, list]] = None,
+        breakpoints: Optional[Union[tuple, list]] = None,
     ):
         # Validate: exactly one of coefficients or evaluate_callable
         if (coefficients is None and evaluate_callable is None) or (
@@ -148,6 +154,9 @@ class Function:
 
         # Support specification - list of disjoint intervals
         self.support = self._check_support(support)
+        self.breakpoints = canonicalize_breakpoints(
+            self.function_domain, breakpoints
+        )
 
         # Function representation
         self._coefficients = (
@@ -282,6 +291,7 @@ class Function:
                 evaluate_callable=self.evaluate_callable,
                 name=self.name,
                 support=self.support,
+                breakpoints=self.breakpoints,
             )
         else:
             self._space = space
@@ -326,6 +336,7 @@ class Function:
                 evaluate_callable=self.evaluate_callable,
                 name=self.name,
                 support=self.support,
+                breakpoints=self.breakpoints,
             )
         else:
             self._domain = domain
@@ -404,6 +415,7 @@ class Function:
         n_points: int = 1000,
         *,
         vectorized: Optional[bool] = None,
+        quadrature_rule: Optional[QuadratureRule] = None,
     ) -> float:
         """
         Integrate function over its domain: ∫[a,b] f(x) w(x) dx.
@@ -418,6 +430,9 @@ class Function:
             Number of quadrature points.
         vectorized : bool, optional
             Whether the callable is vectorized.
+        quadrature_rule : QuadratureRule, optional
+            Explicit nodes and weights. When supplied, it takes precedence
+            over ``method`` and ``n_points`` and must match this domain.
 
         Returns
         -------
@@ -425,6 +440,25 @@ class Function:
             Integral value.
         """
         domain = self.function_domain
+
+        if quadrature_rule is not None:
+            if not quadrature_rule.is_for_domain(domain):
+                raise ValueError("Quadrature rule does not match function domain")
+            values = np.asarray(
+                self.evaluate(quadrature_rule.nodes, check_domain=False)
+            )
+            if weight is not None:
+                values = values * np.asarray(weight(quadrature_rule.nodes))
+            return float(np.dot(quadrature_rule.weights, values))
+
+        if method == "split_gauss_legendre":
+            quadrature_rule = QuadratureRule.split_gauss_legendre(
+                domain, breakpoints=self.breakpoints, n_points=n_points
+            )
+            return self.integrate(
+                weight=weight,
+                quadrature_rule=quadrature_rule,
+            )
 
         if self.has_compact_support:
             support = self.support
@@ -569,6 +603,7 @@ class Function:
                 coefficients=self.coefficients.copy(),
                 name=self.name,
                 support=self.support,
+                breakpoints=self.breakpoints,
             )
         else:
             return self.__class__(
@@ -576,6 +611,7 @@ class Function:
                 evaluate_callable=self.evaluate_callable,
                 name=self.name,
                 support=self.support,
+                breakpoints=self.breakpoints,
             )
 
     def _evaluate_from_coefficients(
@@ -679,6 +715,13 @@ class Function:
         return merged
 
     @staticmethod
+    def _union_breakpoints(
+        breakpoints1: tuple[float, ...], breakpoints2: tuple[float, ...]
+    ) -> tuple[float, ...]:
+        """Return conservative sorted split metadata for a binary result."""
+        return tuple(sorted(set(breakpoints1).union(breakpoints2)))
+
+    @staticmethod
     def _intersect_supports(support1, support2):
         """Compute intersection of two support specifications."""
         # `None` denotes global support. Intersecting global support with a
@@ -779,6 +822,9 @@ class Function:
                 )
             else:
                 new_support = None
+            new_breakpoints = self._union_breakpoints(
+                self.breakpoints, other.breakpoints
+            )
 
             # Determine result's space/domain context:
             # - If both have same space, use that space
@@ -813,6 +859,7 @@ class Function:
                     result_context,
                     coefficients=new_coeffs,
                     support=new_support,
+                    breakpoints=new_breakpoints,
                 )
             else:
                 # Create callable-based result
@@ -839,6 +886,7 @@ class Function:
                     result_context,
                     evaluate_callable=op_callable,
                     support=new_support,
+                    breakpoints=new_breakpoints,
                 )
 
         elif scalar_allowed and isinstance(other, numbers.Number):
@@ -850,10 +898,17 @@ class Function:
             def scalar_op_callable(x):
                 return op(self.evaluate(x, check_domain=False), other)
 
+            new_breakpoints = (
+                () if op_name == "multiply" and other == 0 else self.breakpoints
+            )
+            new_support = (
+                [] if op_name == "multiply" and other == 0 else self.support
+            )
             return self.__class__(
                 result_context,
                 evaluate_callable=scalar_op_callable,
-                support=self.support,
+                support=new_support,
+                breakpoints=new_breakpoints,
             )
         else:
             msg = (
@@ -890,6 +945,7 @@ class Function:
                 result_context,
                 evaluate_callable=rsub_callable,
                 support=self.support,
+                breakpoints=self.breakpoints,
             )
         return NotImplemented
 
@@ -910,7 +966,10 @@ class Function:
                     return np.zeros_like(np.asarray(x), dtype=float)
 
                 return Function(
-                    result_context, evaluate_callable=zero_callable, support=[]
+                    result_context,
+                    evaluate_callable=zero_callable,
+                    support=[],
+                    breakpoints=(),
                 )
 
         return self._binary_op(
@@ -936,6 +995,7 @@ class Function:
                 coefficients=-self.coefficients,
                 name=f"-{self.name}" if self.name else None,
                 support=self.support,
+                breakpoints=self.breakpoints,
             )
         else:
 
@@ -947,6 +1007,7 @@ class Function:
                 evaluate_callable=neg_callable,
                 name=f"-{self.name}" if self.name else None,
                 support=self.support,
+                breakpoints=self.breakpoints,
             )
 
     def restrict(self, restricted_space) -> "Function":
@@ -997,12 +1058,18 @@ class Function:
             new_support = self._intersect_supports(
                 self.support, restricted_domain_support
             )
+        new_breakpoints = tuple(
+            point
+            for point in self.breakpoints
+            if rest_domain.a < point < rest_domain.b
+        )
 
         return Function(
             restricted_space,
             evaluate_callable=self.evaluate_callable,
             name=f"{self.name}_restricted" if self.name else None,
             support=new_support,
+            breakpoints=new_breakpoints,
         )
 
     def __repr__(self) -> str:

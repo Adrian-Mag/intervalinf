@@ -49,6 +49,44 @@ inner_product = space.inner_product(f, g)
 np.testing.assert_allclose(inner_product, 1.0 / 6.0, rtol=1e-6, atol=1e-10)
 ```
 
+### Declared discontinuities and split quadrature
+
+`Function.breakpoints` records conservative interior integration splits. It
+does not try to discover jumps in arbitrary callables, but boxcar and random
+step providers declare their own joins and function arithmetic preserves their
+union. Use the opt-in split Gauss--Legendre path when a quadrature rule must
+not sample a pointwise convention at a discontinuity:
+
+```python
+from intervalinf import Function, IntegrationConfig, QuadratureRule
+
+step = Function(
+    space,
+    evaluate_callable=lambda x: (np.asarray(x) >= 0.5).astype(float),
+    breakpoints=(0.5,),
+)
+rule = QuadratureRule.split_gauss_legendre(
+    domain, breakpoints=step.breakpoints, n_points=32
+)
+integral = step.integrate(quadrature_rule=rule)
+np.testing.assert_allclose(integral, 0.5, rtol=1e-14, atol=1e-14)
+
+split_space = Lebesgue(
+    0,
+    domain,
+    basis=None,
+    integration_config=IntegrationConfig(
+        method="split_gauss_legendre", n_points=32
+    ),
+)
+```
+
+For a discrete SOLA adjoint test, pass the *same* explicit rule to
+`SOLAOperator.apply_with_quadrature_rule` and
+`Lebesgue.inner_product(..., quadrature_rule=rule)`. This is separate from the
+continuous mathematical adjoint and currently provides the exact discrete
+identity for ordinary (unweighted) `Lebesgue` spaces.
+
 Set a positive dimension and choose a basis when coefficients or spectral
 operators are needed:
 

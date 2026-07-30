@@ -19,6 +19,10 @@ FIXED_GRID_METHODS: frozenset = frozenset({"simpson", "trapz"})
 # supported wherever integration methods are accepted.
 ADAPTIVE_METHODS: frozenset = frozenset({"adaptive", "quad"})
 
+# Split Gauss--Legendre rules use interior nodes on panels defined by declared
+# breakpoints. They are intentionally separate from uniform fixed-grid paths.
+SPLIT_GAUSS_LEGENDRE_METHOD = "split_gauss_legendre"
+
 
 @dataclass
 class IntegrationConfig:
@@ -27,7 +31,7 @@ class IntegrationConfig:
 
     Parameters
     ----------
-    method : {'simpson', 'trapz', 'adaptive', 'quad'}
+    method : {'simpson', 'trapz', 'adaptive', 'quad', 'split_gauss_legendre'}
         Integration method.
 
         - ``'simpson'`` / ``'trapz'`` — fixed-grid quadrature rules that
@@ -39,10 +43,15 @@ class IntegrationConfig:
           ``n_points`` is ignored.
         - ``'quad'`` — **alias** for ``'adaptive'`` kept for backward
           compatibility.  New code should prefer ``'adaptive'``.
+        - ``'split_gauss_legendre'`` — builds an interior-node
+          Gauss--Legendre rule on panels declared by ``Function.breakpoints``.
+          This opt-in method avoids giving a pointwise jump convention a
+          quadrature weight.
 
     n_points : int
         Number of quadrature points.  Applies only to fixed-grid methods
-        (``'simpson'`` and ``'trapz'``); ignored for adaptive methods.
+        (``'simpson'`` and ``'trapz'``); split Gauss--Legendre uses it as a
+        total node budget and adaptive methods ignore it.
 
     Examples
     --------
@@ -52,7 +61,9 @@ class IntegrationConfig:
     >>> adapt = IntegrationConfig.adaptive_quad()
     """
 
-    method: Literal["simpson", "trapz", "adaptive", "quad"] = "simpson"
+    method: Literal[
+        "simpson", "trapz", "adaptive", "quad", "split_gauss_legendre"
+    ] = "simpson"
     n_points: int = 1000
 
     @property
@@ -64,6 +75,11 @@ class IntegrationConfig:
     def is_adaptive(self) -> bool:
         """True if this method uses adaptive (scipy.integrate.quad) integration."""
         return self.method in ADAPTIVE_METHODS
+
+    @property
+    def is_split_gauss_legendre(self) -> bool:
+        """True when integration uses declared-breakpoint interior panels."""
+        return self.method == SPLIT_GAUSS_LEGENDRE_METHOD
 
     def copy(self, **overrides) -> "IntegrationConfig":
         """Create a copy with optional parameter overrides."""

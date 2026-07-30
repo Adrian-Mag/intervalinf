@@ -18,6 +18,7 @@ from ..spaces.lebesgue import Lebesgue
 from ..spaces.sobolev import Sobolev
 from ..core.functions import Function
 from ..core.config import IntegrationConfig
+from ..core.quadrature import QuadratureRule
 from ..providers.base import IndexedFunctionProvider
 
 if TYPE_CHECKING:
@@ -288,6 +289,24 @@ class SOLAOperator(LinearOperator):
             result = self._apply_kernels_generic(func)
         self._stats["forward_time_total_s"] += time.perf_counter() - _t0
         return result
+
+    def apply_with_quadrature_rule(
+        self,
+        func: 'Function',
+        quadrature_rule: QuadratureRule,
+    ) -> np.ndarray:
+        r"""Apply this operator on one explicit discrete quadrature rule.
+
+        With kernel table \(K_{ij}=k_i(x_j)\), model values \(m_j\), and
+        rule weights \(w_j\), this returns \(K W m\)_i. It is an explicit
+        numerical evaluation helper; ``__call__`` retains the continuous
+        operator's existing integration dispatch and optimizations.
+        """
+        if not quadrature_rule.is_for_domain(self._domain.function_domain):
+            raise ValueError("Quadrature rule does not match SOLA domain")
+        model_values = self._eval_on_mesh(func, quadrature_rule.nodes)
+        kernel_matrix = self._build_kernel_matrix(quadrature_rule.nodes)
+        return kernel_matrix @ (quadrature_rule.weights * model_values)
 
     @staticmethod
     def _eval_on_mesh(func: 'Function', xs: np.ndarray) -> np.ndarray:
@@ -668,6 +687,14 @@ class SOLAOperator(LinearOperator):
                 self._stats["disjoint_skips"] += 1
                 continue  # data[i] already 0.0
 
+            if method == "split_gauss_legendre":
+                product = func * kernel
+                results[i] = product.integrate(
+                    method=method,
+                    n_points=n_points,
+                )
+                continue
+
             def product_callable(x, _f=func, _k=kernel):
                 return _f.evaluate(
                     x,
@@ -730,10 +757,22 @@ class SOLAOperator(LinearOperator):
         """
         # Collect non-zero terms to avoid deep recursion
         terms = []
+        reconstructed_support = []
+        reconstructed_breakpoints: tuple[float, ...] = ()
         for i, coeff in enumerate(data):
             if abs(coeff) > 1e-14:  # Avoid numerical noise
                 kernel = self.get_kernel(i)
                 terms.append((coeff, kernel))
+                reconstructed_support = Function._union_supports(
+                    reconstructed_support, kernel.support
+                )
+                reconstructed_breakpoints = Function._union_breakpoints(
+                    reconstructed_breakpoints, kernel.breakpoints
+                )
+
+        domain = self._domain.function_domain
+        if reconstructed_support == [(domain.a, domain.b)]:
+            reconstructed_support = None
 
         # Create a single callable that evaluates all terms
         if not terms:
@@ -789,7 +828,10 @@ class SOLAOperator(LinearOperator):
             return result
 
         return Function(
-            self._domain, evaluate_callable=evaluate_sum
+            self._domain,
+            evaluate_callable=evaluate_sum,
+            support=reconstructed_support,
+            breakpoints=reconstructed_breakpoints,
         )
 
     def get_kernels(self) -> List[Function]:
@@ -979,6 +1021,13 @@ class SOLAOperator(LinearOperator):
                 if intersected_support == []:
                     continue
 
+                if method == "split_gauss_legendre":
+                    cross_gram[i, j] = (kernel_i * adjoint_kernel_j).integrate(
+                        method=method,
+                        n_points=n_points,
+                    )
+                    continue
+
                 def product_callable(x, _ki=kernel_i, _kj=adjoint_kernel_j):
                     return _ki.evaluate(x) * _kj.evaluate(x)
 
@@ -1063,6 +1112,13 @@ class SOLAOperator(LinearOperator):
                 )
                 if intersected_support == []:
                     continue  # gram[i, j] already 0.0
+
+                if method == "split_gauss_legendre":
+                    gram[i, j] = (kernel_i * adjoint_kernel_j).integrate(
+                        method=method,
+                        n_points=n_points,
+                    )
+                    continue
 
                 def product_callable(x, _ki=kernel_i, _kj=adjoint_kernel_j):
                     return _ki.evaluate(x) * _kj.evaluate(x)

@@ -27,7 +27,6 @@ import copy as _copy
 import logging
 from typing import (
     TYPE_CHECKING,
-    Callable,
     List,
     Optional,
     Union,
@@ -43,6 +42,7 @@ from intervalinf.core.config import (
 )
 from intervalinf.core.functions import Function
 from intervalinf.core.materialization import RepresentationSpec
+from intervalinf.core.quadrature import QuadratureRule
 from intervalinf.spaces.forms import LinearFormKernel
 from intervalinf.providers.base import BasisProvider
 
@@ -393,7 +393,13 @@ class Lebesgue(HilbertSpace):
     # Inner product and metric
     # ================================================================
 
-    def inner_product(self, u: 'Function', v: 'Function') -> float:
+    def inner_product(
+        self,
+        u: 'Function',
+        v: 'Function',
+        *,
+        quadrature_rule: Optional[QuadratureRule] = None,
+    ) -> float:
         """
         Compute the L² inner product ⟨u, v⟩.
 
@@ -403,6 +409,18 @@ class Lebesgue(HilbertSpace):
         Returns:
             The inner product ⟨u, v⟩ = ∫ u(x) v(x) w(x) dx.
         """
+        if quadrature_rule is not None:
+            if not quadrature_rule.is_for_domain(self.function_domain):
+                raise ValueError("Quadrature rule does not match Lebesgue domain")
+            u_values = np.asarray(
+                u.evaluate(quadrature_rule.nodes, check_domain=False)
+            )
+            v_values = np.asarray(
+                v.evaluate(quadrature_rule.nodes, check_domain=False)
+            )
+            return float(
+                np.dot(quadrature_rule.weights, u_values * v_values)
+            )
         return self._continuous_l2_inner_product(u, v)
 
     def distance(self, u: 'Function', v: 'Function') -> float:
@@ -655,7 +673,10 @@ class Lebesgue(HilbertSpace):
             new_coefficients = a * x.coefficients
             new_support = [] if a == 0 else x.support
             return Function(
-                self, coefficients=new_coefficients.copy(), support=new_support
+                self,
+                coefficients=new_coefficients.copy(),
+                support=new_support,
+                breakpoints=() if a == 0 else x.breakpoints,
             )
         else:
             return a * x
@@ -668,7 +689,12 @@ class Lebesgue(HilbertSpace):
             new_coefficients = x.coefficients + y.coefficients
             new_support = Function._union_supports(x.support, y.support)
             return Function(
-                self, coefficients=new_coefficients.copy(), support=new_support
+                self,
+                coefficients=new_coefficients.copy(),
+                support=new_support,
+                breakpoints=Function._union_breakpoints(
+                    x.breakpoints, y.breakpoints
+                ),
             )
         else:
             return x + y
@@ -679,6 +705,7 @@ class Lebesgue(HilbertSpace):
             x.coefficients *= a
             if a == 0:
                 x.support = []
+                x.breakpoints = ()
             x.clear_materializations()
             return x
         else:
@@ -692,6 +719,9 @@ class Lebesgue(HilbertSpace):
             y.coefficients += a * x.coefficients
             if a != 0:
                 y.support = Function._union_supports(y.support, x.support)
+                y.breakpoints = Function._union_breakpoints(
+                    y.breakpoints, x.breakpoints
+                )
             y.clear_materializations()
             return y
         else:
