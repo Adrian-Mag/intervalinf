@@ -275,3 +275,40 @@ def test_standard_sola_split_configuration_integrates_declared_boxes(
         rtol=1.0e-14,
         atol=1.0e-14,
     )
+
+
+def test_split_rule_coalesces_roundoff_equivalent_adjacent_boundaries(
+    domain: IntervalDomain,
+) -> None:
+    """Adjacent boxcars at non-binary fractions must not create zero panels."""
+    n_targets = 6
+    width = 1.0 / n_targets
+    provider = BoxCarFunctionProvider(
+        domain,
+        default_width=width,
+        centers=(np.arange(n_targets) + 0.5) * width,
+        normalize=False,
+        default_height=1.0 / width,
+    )
+    breakpoints = tuple(
+        sorted(
+            {
+                point
+                for index in range(n_targets)
+                for point in provider.get_function_by_index(index).breakpoints
+            }
+        )
+    )
+
+    rule = QuadratureRule.split_gauss_legendre(
+        domain,
+        breakpoints=breakpoints,
+        n_points=64,
+    )
+
+    np.testing.assert_allclose(
+        rule.panel_bounds,
+        np.linspace(0.0, 1.0, n_targets + 1),
+        rtol=0.0,
+        atol=2.0e-15,
+    )

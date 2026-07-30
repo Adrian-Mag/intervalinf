@@ -38,9 +38,23 @@ def canonicalize_breakpoints(
         points.append(value)
 
     points.sort()
-    if any(left == right for left, right in zip(points, points[1:], strict=False)):
-        raise ValueError("Breakpoints must be unique")
-    return tuple(points)
+    canonical: list[float] = []
+    resolution = 8.0 * np.finfo(float).eps * max(
+        1.0,
+        abs(domain.a),
+        abs(domain.b),
+    )
+    for value in points:
+        if canonical and value == canonical[-1]:
+            raise ValueError("Breakpoints must be unique")
+        if canonical and abs(value - canonical[-1]) <= resolution:
+            # Adjacent intervals assembled through separate floating-point
+            # expressions can describe one intended join with neighbouring
+            # IEEE-754 values. Retain the first stable value rather than
+            # creating a panel that cannot hold distinct quadrature nodes.
+            continue
+        canonical.append(value)
+    return tuple(canonical)
 
 
 @dataclass(frozen=True)
