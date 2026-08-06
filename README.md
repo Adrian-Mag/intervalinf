@@ -13,8 +13,24 @@ Karhunen-Loeve sampling.
 
 ## Installation
 
-`intervalinf` requires Python 3.12 or newer and is currently installed from a
-source checkout:
+`intervalinf` requires Python 3.12 or newer and is currently installed from
+source checkouts.
+
+Basis-free spaces require pygeoinf's functional vector-update contract, in
+which `HilbertSpace.ax()` and `HilbertSpace.axpy()` return the updated vector.
+That contract is newer than pygeoinf 1.8.2 and has not yet appeared in a
+tagged upstream release, so install pygeoinf from the branch carrying it
+**first**:
+
+```bash
+git clone --branch feature/functional-vector-updates \
+    https://github.com/Adrian-Mag/pygeoinf.git
+cd pygeoinf
+python -m pip install -e .
+cd ..
+```
+
+Then install `intervalinf` against it:
 
 ```bash
 git clone https://github.com/Adrian-Mag/intervalinf.git
@@ -22,13 +38,14 @@ cd intervalinf
 python -m pip install -e ".[dev]"
 ```
 
-Basis-free spaces require pygeoinf's functional vector-update contract, in
-which `HilbertSpace.ax()` and `HilbertSpace.axpy()` return the updated vector.
-That contract is newer than pygeoinf 1.8.2 and has not yet appeared in a tagged
-release. Until it is released, install intervalinf alongside a pygeoinf source
-checkout that contains the contract. Basis-free construction checks this at
-runtime and fails with an explicit compatibility error instead of silently
-returning incorrect results.
+Order matters: that editable pygeoinf install already satisfies
+`intervalinf`'s `pygeoinf>=1.8.2` requirement, so pip will not replace it with
+an upstream release that lacks the contract.
+
+Basis-free construction checks the contract at runtime and fails with an
+explicit compatibility error rather than silently returning incorrect results.
+Once the contract reaches a tagged upstream pygeoinf release, this extra step
+goes away and plain `pip install pygeoinf` will be enough.
 
 ## Continuous Functions
 
