@@ -1180,41 +1180,87 @@ class LebesgueSpaceDirectSum(HilbertSpaceDirectSum):
     inner products via LinearFormKernel.
     """
 
+    def _member_dual_configs(self, subspace):
+        """Integration/parallel configs for one member's kernel form."""
+        if hasattr(subspace, 'integration'):
+            return subspace.integration.dual, subspace.parallel.dual  # type: ignore
+        return (
+            IntegrationConfig(method='trapz', n_points=1000),
+            ParallelConfig(enabled=False, n_jobs=-1),
+        )
+
     def to_dual(self, xs: List[Function]) -> LinearFormKernel:
         """
-        Map a list of functions to a dual element.
+        Map a list of functions to a dual element (Riesz map).
+
+        Delegates to each member space's own ``to_dual`` and collects the
+        member kernels, so every member contributes its actual Riesz
+        representative. For a plain :class:`Lebesgue` member the kernel is
+        the function itself (identity Riesz map -- identical to the
+        previous behaviour); for a mass-weighted member such as
+        :class:`~intervalinf.spaces.weighted_lebesgue.WeightedLebesgue`
+        the kernel is ``M x = w.x``, so the plain kernel pairing
+        reproduces the member's weighted inner product, per
+        :class:`~intervalinf.spaces.forms.LinearFormKernel`'s documented
+        contract.
+
+        (Previously the raw ``xs`` were used as the kernel, which silently
+        dropped member weights: the direct-sum inner product of weighted
+        members evaluated the UNWEIGHTED pairing. Found 2026-08-16 by the
+        thesis ch7 model-space checks.)
 
         Args:
-            xs: List of Functions, one per subspace.
+            xs: List of member vectors, one per subspace.
 
         Returns:
-            LinearFormKernel for integration-based inner products.
+            LinearFormKernel whose kernel is the list of member Riesz
+            kernels (nested lists for nested direct sums).
         """
         if len(xs) != self.number_of_subspaces:
             raise ValueError("Input list has incorrect number of vectors.")
 
-        # Get config from first subspace
-        subspace = self.subspace(0)
-        if hasattr(subspace, 'integration'):
-            int_cfg = subspace.integration.dual  # type: ignore
-            par_cfg = subspace.parallel.dual  # type: ignore
-        else:
-            int_cfg = IntegrationConfig(method='trapz', n_points=1000)
-            par_cfg = ParallelConfig(enabled=False, n_jobs=-1)
+        kernels = []
+        for space, x in zip(self.subspaces, xs):
+            member_dual = space.to_dual(x)
+            if not isinstance(member_dual, LinearFormKernel) or member_dual.kernel is None:
+                raise TypeError(
+                    "LebesgueSpaceDirectSum requires every member space's "
+                    "to_dual to return a kernel-carrying LinearFormKernel; "
+                    f"{type(space).__name__} returned "
+                    f"{type(member_dual).__name__}."
+                )
+            kernels.append(member_dual.kernel)
 
+        int_cfg, par_cfg = self._member_dual_configs(self.subspace(0))
         return LinearFormKernel(
             self,
-            kernel=xs,
+            kernel=kernels,
             integration_config=int_cfg,
             parallel_config=par_cfg,
         )
 
     def from_dual(self, xp) -> List[Function]:
-        """Map a dual element back to functions."""
-        if isinstance(xp, LinearFormKernel):
-            return xp.kernel  # type: ignore
-        else:
-            return super().from_dual(xp)
+        """Map a dual element back to member vectors (inverse Riesz map).
+
+        Each member kernel is handed to its member space's own
+        ``from_dual`` (wrapped as a member-level kernel form), inverting
+        exactly what :meth:`to_dual` builds: plain Lebesgue members return
+        the kernel unchanged, mass-weighted members apply their inverse
+        mass, nested direct sums recurse.
+        """
+        if isinstance(xp, LinearFormKernel) and xp.kernel is not None:
+            members = []
+            for space, k in zip(self.subspaces, xp.kernel):
+                int_cfg, par_cfg = self._member_dual_configs(space)
+                member_form = LinearFormKernel(
+                    space,
+                    kernel=k,
+                    integration_config=int_cfg,
+                    parallel_config=par_cfg,
+                )
+                members.append(space.from_dual(member_form))
+            return members
+        return super().from_dual(xp)
 
 
 # =============================================================================
