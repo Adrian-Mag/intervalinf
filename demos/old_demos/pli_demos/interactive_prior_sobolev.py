@@ -194,7 +194,7 @@ def plot_prior(ax, M_prior, sampler):
                 linewidth=1, label='Prior Samples' if i == 0 else "")
 
     # Compute pointwise standard deviation using KLSampler
-    variance_func = sampler.variance_function()
+    variance_func = sampler.variance_function
     std_values = np.sqrt(variance_func.evaluate(x))
     mean_values = M_prior.expectation.evaluate(x)
 

@@ -4,7 +4,32 @@
 
 `intervalinf` provides concrete implementations of Hilbert spaces for functions defined on 1D intervals, built directly on top of `pygeoinf`. The central design principle is **continuous-first**: functions are represented as callables over an `IntervalDomain` and inner products are computed by numerical integration, not matrix multiplication. Discretisation (choosing a finite basis) is opt-in. The package extends `pygeoinf`'s abstract algebra (Hilbert spaces, linear operators, linear forms, Gaussian measures) for the specific case where the model space is $L^2([a,b])$ or a Sobolev space $H^s([a,b])$.
 
-## Demo Notebooks
+## Maintained Product Demos
+
+The product branch retains eight source-only notebooks under `demos/`. All were
+executed from clean kernels on 2026-07-17 with `MPLBACKEND=Agg`, one native
+thread, a 120-second per-cell timeout, and outputs redirected to `/tmp`.
+
+| Notebook | Scope | Execution result |
+|---|---|---|
+| `1_interval_domain_demo.ipynb` | domains, meshes, integration | 17/17 code cells pass |
+| `2_functions_demo.ipynb` | callable functions, support, arithmetic | 19/19 pass |
+| `3.1_kernel_functionals_demo.ipynb` | kernel forms and weighted Riesz maps | 15/15 pass |
+| `3_lebesgue_space_demo.ipynb` | basis-free, basis-backed, weighted spaces | 16/16 pass |
+| `4_function_and_basis_providers_demo.ipynb` | built-in and custom providers | 14/14 pass |
+| `5_gradient_operator_demo.ipynb` | gradient behavior and limitations | 14/14 pass |
+| `6_laplacian_operator_demo.ipynb` | spectral/FD Laplacians and inverse problems | 18/18 pass |
+| `model_fusion/first_test.ipynb` | direct-sum Bayesian model fusion | 11/11 pass |
+
+The audit migrated removed `Lebesgue(weight=...)` calls to
+`WeightedLebesgue`, updated model fusion to `LinearBayesianInversion` followed
+by Gaussian push-forward, used the `KLSampler.variance_function` property,
+bounded demo parallelism to one job, corrected negative-Laplacian analytical
+signs and zero-sensitive eigenvalue ratios, and replaced deprecated
+`np.trapz`. The `[demos]` package extra installs Jupyter, nbconvert, plotting,
+and kernel dependencies. Executed notebooks are never committed.
+
+## Mission and Historical Demo Notebooks
 
 The `intervalinf/demos/convex_analysis/` directory contains notebook-scale demonstrations of convex-analysis inversion workflows built on `intervalinf` and `pygeoinf`.
 
@@ -62,20 +87,26 @@ The `intervalinf/demos/old_demos/paper_demos/` directory contains paper-oriented
 |-----|-------|
 | Version | 0.1.0 |
 | Status | Alpha (Development Status 3) |
-| Python | ≥ 3.11 |
+| Python | ≥ 3.12 |
 | License | BSD-3-Clause |
-| Core dependencies | `numpy≥1.26.0`, `scipy≥1.11.0`, `pygeoinf≥1.4.2` |
-| Optional | `dev` (`pytest>=8.0.0`, `pytest-cov>=4.0.0`, `mypy>=1.0.0`, `ruff>=0.1.0`), `docs` (`sphinx>=7.0.0`, `sphinx-rtd-theme>=2.0.0`, `myst-parser>=2.0.0`), `plotting` (`matplotlib>=3.8.0`, `seaborn>=0.13.0`), `all` (`intervalinf[dev,docs,plotting]`) |
+| Core dependencies | `numpy≥2.0.0`, `scipy≥1.13.0`, `pygeoinf≥1.8.2` plus the functional vector-update contract for basis-free spaces |
+| Optional | `dev` (`pytest>=8.0.0`, `pytest-cov>=4.0.0`, `mypy>=1.0.0`, `ruff>=0.1.0`), `docs` (`sphinx>=7.0.0`, `sphinx-rtd-theme>=2.0.0`, `myst-parser>=2.0.0`), `plotting` (`matplotlib>=3.8.0`, `seaborn>=0.13.0`), `demos` (`ipykernel>=6.0.0`, `jupyterlab>=4.0.0`, `nbconvert>=7.0.0`, plotting dependencies), `all` (all optional groups) |
 | Build backend | hatchling |
 
-**Install:**
+**Install from a source checkout:**
 ```bash
-pip install intervalinf           # minimal
-pip install "intervalinf[all]"    # includes dev, docs, plotting
 pip install -e ".[dev]"           # editable development install
 ```
 
-**Last Updated:** 2026-06-06 (General-ell radial Laplacian: implemented `RadialLaplacian(ell>0)` with spherical-Bessel roots/eigenfunctions, guarded the radial Dirichlet fast path to `ell=0`, and wired weighted full-spectrum priors, calibration, tuner, remote, headless, and prior maps to use degree-aware shared Bessel covariances keyed by `(component, degree)`. Previous: 2026-06-05 prior-predictive tau calibration: added `utils/prior_calibration.py` and `run_prior_calibration.py` to calibrate `tau_{p,s}` against reconstructed-field amplitude targets and write tau tables, diagnostics, and sample maps under `intervalinf/work/prior_calibration/**`; integrated the same calibration into the Tk prior-posterior tuner so **Build Prior** auto-calibrates degree-dependent tau and synchronizes `k`, `s`, and `alpha`. Previous: Overnight validation bundle: added rich/BC/matrix validation configs under `old_demos/paper_demos/configs/`, a local orchestrator `run_overnight_validation.py`, a europa submit helper `submit_overnight_validation_europa.py`, and a claim-release fix for the europa sweep submit path. Previous: 2026-06-04 headless paper-runner implementation: added `old_demos/paper_demos/headless/`, `run_paper_inference.py`, `run_paper_sweep.py`, baseline flat/weighted configs, a prior/noise/truncation sweep config, ignored `runs/` artifact root, and focused config/sweep tests. Previous: 2026-05-21 paper demo layout update: standalone viewers and plotting modules moved to `old_demos/paper_demos/visualization/`, while shared data/model-building helpers remain in `old_demos/paper_demos/utils/`; `example.ipynb`, tests, and root tuner scripts now add both folders to `sys.path`. Previous: 2026-05-19 synthetic tuner update: smooth synthetic true models now use a fixed tau=1 Bessel-Sobolev target-fit solve with RMS standardized residual target 2.0, with helper tests and GUI fit metadata. Previous: Phase 8 prior visualisation: added `visualization/prior_viz.py` with `PriorViewer`, `_render_prior_figure`, `make_prior_widget`, and a standalone `MatplotlibPriorViewer` / CLI; added `tests/test_prior_viz.py` with 7 smoke tests (all green in the Python 3.12 `inferences` env); added Phase 3.5 markdown + 2 code cells to `example.ipynb`; fixed `_plot_radial_panel` std-band alignment bug. Previous: Phase 7 visualisation: added `visualization/full_spectrum_viz.py` with `plot_block_posterior`, `plot_cmb_map`, `plot_equatorial_slice`, `plot_property_posterior_summary`; added `tests/test_full_spectrum_viz.py` with 3 smoke tests; appended 4 Phase 7 cells to `example.ipynb`. Previous: added the `old_demos/paper_demos/visualization/normal_mode_data_viewer.py` Matplotlib-widget explorer for observed normal-mode splitting data, reported errors, PREM-layer sensitivity kernels, and synthetic model comparisons; `full_spectrum_utils.solve_all_blocks()` now uses process-based block parallelism with per-worker native thread limits because the previous thread backend scaled poorly for the paper demo posterior solves. Prior notes still apply: 2026-04-13 added the `demos/sola-base_demo/sola_demo.ipynb` round-trip notebook linking `intervalinf`/`pygeoinf` discrete SOLA operators to `sola-base`; the 2026-04-03 reduced-operator note documents `_build_kernel_matrix()`, `_build_quadrature_weights()`, `compute_gram_matrix_fast()`, `compute_cross_gram_matrix(other)`, and dense reduced operators in `operators/reduced.py`.)
+No tagged pygeoinf release currently contains the functional vector-update
+contract required by basis-free `Lebesgue` and `WeightedLebesgue`. The
+`pygeoinf>=1.8.2` metadata is the current tagged baseline, not a claim that
+1.8.2 supports basis-free mode. Construction performs a behavioral contract
+check, README installation guidance states the limitation, and CI checks the
+contract before running the suite. Replace the baseline with the first exact
+compatible release floor once the pygeoinf refactor is released.
+
+**Last Updated:** 2026-07-17 (Demo execution audit: all eight maintained product notebooks execute from clean kernels; weighted spaces, Bayesian model fusion, KL variance, negative-Laplacian comparisons, NumPy integration calls, and demo resource settings match current APIs. Previous: product packaging cleanup and correctness hardening.)
 
 **Mission context (2026-05-13):** The *Lowering Execution Framework* mission (started 2026-04-03) is incrementally building an optimization layer on top of the current semantic operator model. This reference documents the **stable intervalinf semantic API**. The reduced operators (`ReducedGramOperator`, `ReducedCrossGramOperator`, `ReducedCovarianceOperator`) are foundation blocks for the mission; the planner layer (phases 1–5) is being prototyped in the lowering framework mission and will decide (phase 6) whether to integrate into the main branch. See `docs/agent-docs/completed-plans/lowering-execution-framework-phase-*.md` for mission progress.
 
@@ -138,6 +169,12 @@ tests/
 ```
 
 The current suite is organized by package layer rather than by mathematical workflow. When tracing a behavior change, start with the matching package directory under `tests/`, then check `tests/conftest.py` for shared fixtures reused across modules.
+
+**Focused benchmark:**
+`benchmarks/benchmark_stabilized_paths.py` asserts semantic equivalence before
+timing four resource-bounded comparisons: nested function checks, cached SOLA,
+weighted radial Bessel, and KL variance evaluation. Run it with capped native
+threads; `--repeat` and `--number` control the workload.
 
 **pygeoinf relationship:**
 
@@ -282,6 +319,12 @@ Supported `bc_type` values:
 
 **Note:** For `*`, if both operands have compact support and their supports are disjoint, the product is an identically-zero `Function` with `support=[]`.
 
+**Composite evaluation guard (2026-07-17):** Space-attached outer
+`Function` objects perform the domain-membership check once. Scalar arithmetic
+then evaluates its already-validated nested operand with `check_domain=False`.
+Tests verify that an out-of-domain request is rejected by the outer function
+before the nested callable runs.
+
 **Phase 2 materialization note:** `Function` now keeps a private `_materializations` dict keyed by `RepresentationSpec`. This does not change ordinary `f(x)` semantics; it only supports repeated fixed-grid evaluations such as `Lebesgue.inner_product` on Simpson/trapezoid meshes.
 
 **Mathematical meaning:** Represents an element of $L^2([a,b])$ or $H^s([a,b])$; evaluation at a point is the function value $f(x)$.
@@ -343,6 +386,10 @@ All dataclasses support `.copy(**overrides)`.  `IntegrationConfig.method` accept
   - `integration_config`: `IntegrationConfig` or `LebesgueIntegrationConfig`
   - `parallel_config`: `ParallelConfig` or `LebesgueParallelConfig`
   - **NOTE:** the legacy `weight=` argument was REMOVED (2026-06-02). Weighting is now done exclusively via `WeightedLebesgue` / `MassWeightedHilbertSpace`.
+  - **Compatibility:** basis-free construction requires pygeoinf's functional
+    vector-update contract, in which `HilbertSpace.ax()` and `axpy()` return the
+    updated vector and generic callers retain it. A behavioral feature check
+    raises `RuntimeError` immediately on the older mutating-only contract.
 
 | Property | Description |
 |---|---|
@@ -358,13 +405,15 @@ All dataclasses support `.copy(**overrides)`.  `IntegrationConfig.method` accept
 | `distance(u, v)` | $\|u - v\|_{L^2}$ |
 | `to_dual(x)` | Returns `LinearFormKernel` with kernel $= x$ (Riesz map is identity in $L^2$) |
 | `from_dual(xp)` | Extracts kernel from `LinearFormKernel` |
-| `to_components(f)` | Projects $f$ onto the basis: $c_i = \langle f, \phi_i \rangle$ |
-| `from_components(c)` | Reconstructs $f = \sum c_i \phi_i$; **infers `support`** from active basis functions (Phase 2): `support=[]` if all-zero, `support=None` if any active basis function is globally supported, else union of active basis-function supports (tol = 1e-14) |
+| `to_components(f)` | Projects $f$ onto the basis: $c_i = \langle f, \phi_i \rangle$. Raises a clear `RuntimeError` for basis-free spaces, which have no finite coordinate representation |
+| `from_components(c)` | Reconstructs $f = \sum c_i \phi_i$ and infers support from active basis functions. Raises for basis-free spaces even when `c` is empty; use `space.zero` for the mathematical zero function |
 | `zero` | Returns zero function with `support=[]` |
 | `multiply(a, x)` | Scalar × coefficient function; propagates `support=[]` when `a==0`, else preserves `x.support` |
 | `add(x, y)` | Coefficient addition; returns `Function` with `support = union(x.support, y.support)` |
-| `ax(a, x)` | In-place `x *= a`; sets `x.support = []` when `a == 0` and clears any cached materializations on `x` |
-| `axpy(a, x, y)` | In-place `y += a*x`; updates `y.support = union(y.support, x.support)` only when `a != 0` (preserves `y.support` for the zero-update case) and clears any cached materializations on `y` |
+| `ax(a, x)` | Returns $a x$. Coefficient-backed functions are scaled in place, have materializations cleared, and are returned; basis-free functions produce a new `Function` |
+| `axpy(a, x, y)` | Returns $y+a x$. Two coefficient-backed functions use the in-place fast path, update support when `a != 0`, clear materializations, and return `y`; otherwise a new `Function` is returned |
+| `is_representation_compatible(other)` | Requires matching dimension, interval, and basis representation. Standard named bases compare by type; direct callable bases require the same callable identities; untyped custom providers are conservative |
+| `__eq__(other)` | Operational equality used by pygeoinf domain checks; delegates to `is_representation_compatible` so equal-dimensional sine and cosine representations are not interchangeable |
 | `restrict(subspace, ...)` | Creates a `Lebesgue` on a subdomain |
 | `gram_matrix()` | Assembles and returns the full Gram matrix |
 | `inverse_gram_matrix()` | Returns $G^{-1}$ |
@@ -635,7 +684,7 @@ Normal-mode exploration helpers live in `demos/old_demos/paper_demos/utils/prior
   - `kernels`: `IndexedFunctionProvider` | list of `Function` | list of callables
   - `dual_mapping`: reconstructs a `LinearFormKernel` from data coefficients $\sum y_i k_i(x)$
 
-**Mass-weighted domains (2026-06-02):** The forward $(Gf)_i=\int k_i f\,dx$ is the inner-product-independent data functional. The adjoint is taken w.r.t. the *model* inner product: $G^*(y)=R_M^{-1}(\sum_i y_i k_i)$. Because `SOLAOperator` only defines `dual_mapping` and pygeoinf derives `.adjoint = from_dual ∘ dual_mapping`, the adjoint is **already correct** for any domain with a correct Riesz map — including `WeightedLebesgue` (where `from_dual` applies $M^{-1}$). The **Gram/cross-Gram** assemblies, however, must use the *adjoint kernel* $M^{-1}(k_j)$ on one side: $(GG^*)_{ij}=\int k_i\,(M^{-1}k_j)\,dx$. This is handled by `_adjoint_kernel(i)` / `_build_adjoint_kernel_matrix(xs)` (identity for plain $L^2$, $M^{-1}(k_i)$ for a `MassWeightedHilbertSpace` domain), used by all four Gram methods. Tests: `tests/operators/test_sola_weighted_adjoint.py`. NOT yet verified for the reduced operators in `operators/reduced.py`.
+**Mass-weighted domains (updated 2026-07-17):** The forward $(Gf)_i=\int k_i f\,dx$ is the inner-product-independent data functional. The adjoint is taken w.r.t. the *model* inner product: $G^*(y)=R_M^{-1}(\sum_i y_i k_i)$. Because `SOLAOperator` only defines `dual_mapping` and pygeoinf derives `.adjoint = from_dual ∘ dual_mapping`, the adjoint is **already correct** for any domain with a correct Riesz map — including `WeightedLebesgue` (where `from_dual` applies $M^{-1}$). Gram, cross-Gram, and reduced-covariance assembly must use the *adjoint kernel* $M^{-1}(k_j)$ on the right: $(G C G^*)_{ij}=\int k_i\,C(M^{-1}k_j)\,dx$. `_adjoint_kernel(i)` / `_build_adjoint_kernel_matrix(xs)` provides that representative (identity for plain $L^2$, $M^{-1}(k_i)$ for a `MassWeightedHilbertSpace` domain). Tests cover weighted SOLA identities in `tests/operators/test_sola_weighted_adjoint.py` and plain, weighted-Lebesgue, and Sobolev reduced covariance in `tests/operators/test_reduced.py`.
 
 | Method | Description |
 |---|---|
@@ -657,8 +706,9 @@ Normal-mode exploration helpers live in `demos/old_demos/paper_demos/utils/prior
 | `_eval_on_mesh(func, xs)` | **Static.** Evaluates a `Function` on a numpy mesh array with vectorisation fallback for non-vectorised callables; preserves complex dtype |
 | `_build_support_mesh(support, n_points)` | **Static. Phase 4.** Builds a concatenated quadrature mesh over a list of support subintervals, reproducing the proportional-allocation + remainder-distribution logic of `IntervalDomain.integrate`. Returns an empty array for empty support; otherwise concatenates `np.linspace(a_i, b_i, alloc_i)` per subinterval (shared boundary endpoints **not** deduplicated). Used by the Phase 5 grouped support-restricted batched integration path. |
 | `_apply_kernels(func)` | Dispatch method: routes to `_apply_kernels_fixed_grid` for fixed-grid methods, `_apply_kernels_generic` for adaptive |
-| `_apply_kernels_fixed_grid(func)` | Phase 5 forward path — reuses shared mesh, evaluates f once, batches full-domain kernels, and groups compact-support kernels by their exact intersected-support key for batched integration on restricted meshes per subinterval |
+| `_apply_kernels_fixed_grid(func)` | Phase 5 forward path — reuses the shared mesh, keeps global kernels on the cached full-domain batch even when `func` is compactly supported, and groups compact-support kernels by exact intersected support for restricted batched integration |
 | `_apply_kernels_generic(func)` | Original per-kernel loop — calls `domain.integrate()` individually for each kernel; used for adaptive methods |
+| `_reconstruct_function(data)` | Builds the lazy kernel sum used by the dual/adjoint path. The result is attached to the model space so it checks the outer domain once, while nested kernel evaluations skip redundant checks |
 
 **Phase 2 instrumentation counters (2026-03-10):**
 
@@ -701,6 +751,11 @@ print(s["compact_support_fallbacks"], "fallbacks in", s["forward_calls"], "calls
 
 *Phase 5b — grouped support-restricted batched integration (2026-03-10):*
 - **Replaces per-kernel `domain.integrate` fallback** for compact-support kernels with a grouped batched numpy/scipy pass.
+- **Classification correction (2026-07-17):** grouping is determined by the
+  kernel support. A global kernel remains on the full-domain cached path when
+  the input function is compactly supported; `Function.evaluate` supplies
+  exact zeros outside the input support. Empty inputs and disjoint compact
+  supports are still skipped exactly.
 - **Grouping logic:** during the classification loop, kernels with a non-None, non-empty `intersected_support` are inserted into a `support_groups` dict keyed by `tuple(tuple(iv) for iv in intersected_support)`. Only exact tuple equality is used — no floating-point canonicalization.
 - **Per-group integration:** for each unique support key, the proportional allocation sizes are computed via `_compute_subinterval_alloc(...)`, then for each subinterval `(a_i, b_i)` with allocation `n_i` a per-subinterval `np.linspace(a_i, b_i, n_i)` mesh is built, `f` and all kernels in the group are evaluated on it, the batched product matrix is integrated with `_simpson`/`_trapz`, and partial results are accumulated. Summing over subintervals gives the complete integral for non-contiguous multi-interval supports.
 - **Single-subinterval groups (common case):** exactly one `_build_support_mesh` call per group, one batched integration pass. N kernels sharing the same single-interval support → 1 mesh build instead of N.
@@ -731,7 +786,7 @@ print(s["compact_support_fallbacks"], "fallbacks in", s["forward_calls"], "calls
 - **`_build_quadrature_weights(xs=None, method=None)`** returns dense Simpson or trapezoid weights. For odd sample counts Simpson uses the classical $[1,4,2,\ldots,4,1]h/3$ pattern; for even sample counts it reproduces the same Cartwright correction that `scipy.integrate.simpson` applies, so reduced assembly matches the legacy pairwise quadrature path to machine precision.
 - **`compute_gram_matrix_fast()`** computes the dense reduced Gram matrix directly as `(K * w[np.newaxis, :]) @ K.T`, avoiding creation of intermediate `Function` objects and repeated `domain.integrate()` calls. When `cache_kernels=False` or the integration method is adaptive it falls back to `compute_gram_matrix()`.
 - **`compute_cross_gram_matrix(other)`** computes a dense cross-Gram matrix `self @ other.adjoint` on a common mesh. The fast path requires both operators to use the same fixed-grid method and `n_points`; mismatched or adaptive configurations fall back to pairwise quadrature.
-- **`compute_reduced_covariance(G, C, C_d=None)`** evaluates each kernel `g_j`, applies the model-side operator `C(g_j)`, samples the transformed kernels on `G`'s shared mesh, and assembles the dense reduced matrix `(K * w[np.newaxis, :]) @ CK.T + C_d`, i.e. `G C G* + C_d`, without reconstructing `Function` objects inside a pairwise inner-product loop.
+- **`compute_reduced_covariance(G, C, C_d=None)`** applies `C` to `G._adjoint_kernel(j)`, samples the transformed functions on `G`'s shared mesh, and assembles `(K * w[np.newaxis, :]) @ CK.T + C_d`. For mass-weighted domains this is `C(M^-1 g_j)`, which is required for semantic equivalence with `G C G* + C_d`.
 - **`operators/reduced.py`** adds `ReducedGramOperator.from_sola(G)`, `ReducedCrossGramOperator.from_sola_pair(T, G)`, and `ReducedCovarianceOperator.from_sola_and_model(G, C, C_d=None)`, all returning dense matrix-backed `pygeoinf` operators on the data spaces.
 - **Measured benchmark** on `benchmarks.baseline_benchmark.build_problem(N_d=10, N_p=5, seed=42)`: slow Gram median `116.079 ms`; fast cold `0.168 ms`; fast hot median `0.075 ms`; hot speedup `1548.28x`; max absolute difference `7.105e-15`.
 
@@ -741,7 +796,7 @@ print(s["compact_support_fallbacks"], "fallbacks in", s["forward_calls"], "calls
 
 | Factory | Description |
 |---|---|
-| `compute_reduced_covariance(G, C, C_d=None)` | Returns the dense reduced matrix `G C G* + C_d` by reusing `G`'s fixed-grid kernel table and quadrature weights and evaluating the transformed kernel table `CK[j, :] = C(g_j)(x_s)` on the same mesh |
+| `compute_reduced_covariance(G, C, C_d=None)` | Returns `G C G* + C_d` by reusing `G`'s fixed-grid kernel table and evaluating `C(G._adjoint_kernel(j))` on the same mesh; for mass-weighted domains the right representative is `M^-1 g_j` |
 | `ReducedGramOperator.from_sola(G)` | Returns a dense self-adjoint matrix-backed operator on `G.codomain` using `G.compute_gram_matrix_fast()` |
 | `ReducedCrossGramOperator.from_sola_pair(T, G)` | Returns a dense matrix-backed operator `G.codomain -> T.codomain` using `T.compute_cross_gram_matrix(G)` |
 | `ReducedCovarianceOperator.from_sola_and_model(G, C, C_d=None)` | Returns a dense self-adjoint matrix-backed operator on `G.codomain` using `compute_reduced_covariance(G, C, C_d)` |
@@ -961,6 +1016,11 @@ All are `IndexedFunctionProvider` subclasses; each wraps a domain and returns ra
 | `covariance_factor()` | Returns the operator $L$ such that $C \approx LL^*$ |
 | `truncation_info` | Returns `TruncationInfo` after first `sample()` call |
 
+Lazy spectral expansions, KL variance functions, and KL samples are attached
+to their outer space. Their nested eigenfunction/mean evaluations use
+`check_domain=False`; the outer function remains responsible for rejecting
+invalid points.
+
 **Gaussian measure workflow:**
 ```python
 domain = IntervalDomain(0, 1)
@@ -1050,8 +1110,6 @@ Number of points scales with `IntegrationConfig.n_points` (default 1000); `Lebes
 | `IntervalDomain` | `core/domain.py` | 1D interval with meshing/integration | — |
 | `BoundaryConditions` | `core/boundary.py` | BC specification (D/N/R/P/mixed) | — |
 | `Function` | `core/functions.py` | Callable function on interval | Vector type for `HilbertSpace` |
-| `RepresentationSpec` | `core/materialization.py` | Hashable fixed-grid/spectral cache key | Hidden representation helper |
-| `Materialization` | `core/materialization.py` | Cached grid + function values | Hidden representation helper |
 | `IntegrationConfig` | `core/config.py` | Quadrature settings | — |
 | `ParallelConfig` | `core/config.py` | Parallelisation settings | — |
 | `Lebesgue` | `spaces/lebesgue.py` | $L^2([a,b])$ Hilbert space | Implements `HilbertSpace` |
@@ -1060,6 +1118,7 @@ Number of points scales with `IntegrationConfig.n_points` (default 1000); `Lebes
 | `LebesgueParallelConfig` | `spaces/lebesgue.py` | Hierarchical parallel config for $L^2$ | — |
 | `Sobolev` | `spaces/sobolev.py` | $H^s([a,b])$ Hilbert space | Implements `MassWeightedHilbertSpace` |
 | `SobolevSpaceDirectSum` | `spaces/sobolev.py` | Direct sum of $H^s$ spaces | Implements `HilbertSpaceDirectSum` |
+| `WeightedLebesgue` | `spaces/weighted_lebesgue.py` | Weighted $L^2([a,b];w)$ space | Implements `MassWeightedHilbertSpace` |
 | `LinearFormKernel` | `spaces/forms.py` | Kernel-based linear form | Implements `LinearForm` |
 | `KnownRegion` | `spaces/lebesgue.py` | Fixed-value sub-interval spec | — |
 | `PartitionedLebesgueSpace` | `spaces/lebesgue.py` | $L^2$ with known regions | Extends `Lebesgue` |

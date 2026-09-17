@@ -387,7 +387,7 @@ class KLSampler:
         def evaluate_variance(x):
             var = np.zeros_like(x) if isinstance(x, np.ndarray) else 0.0
             for lam, phi in zip(eigvals, eigfuncs):
-                phi_val = phi.evaluate(x)
+                phi_val = phi.evaluate(x, check_domain=False)
                 var = var + lam * (phi_val ** 2)
             return var
 
@@ -417,11 +417,11 @@ class KLSampler:
 
         def evaluate_sample(x):
             # Start with mean
-            result = self._mean.evaluate(x)
+            result = self._mean.evaluate(x, check_domain=False)
             # Add KL contributions
             for coeff, lam_sqrt, phi in zip(z, sqrt_lam, eigfuncs):
                 if lam_sqrt > 0 and coeff != 0:
-                    result = result + lam_sqrt * coeff * phi.evaluate(x)
+                    result = result + lam_sqrt * coeff * phi.evaluate(x, check_domain=False)
             return result
 
         return Function(self._domain, evaluate_callable=evaluate_sample)
