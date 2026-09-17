@@ -60,7 +60,13 @@ script (`thesis/scripts/backup-snapshot.sh`). Never push, delete or base work on
   2026-09-17; never recreate or use it.
 - **From the laptop:** commit, push the branch to the sync remote, then `europa submit '<cmd>'`. It
   syncs europa's clone to your exact pushed commit (refusing on unpushed commits, uncommitted
-  changes, a running job, or divergence) and starts the job there. `europa push` is retired.
+  changes, a running job, other processes working in the clone, or divergence) and starts the job
+  there. If europa's clone is on another branch it refuses unless you pass `--switch`; ask the author
+  first, because someone may be using that branch on europa. `europa push` is retired.
+- **Library repos are not synced by submit.** A job imports europa's own checkouts of intervalinf,
+  pygeoinf, pygeoinf3D and SOLA_DLI (the `libraries` list in `.europa.yml`). Submit warns when they
+  differ from the laptop's and records their commits in `europa_job.info`. To run library changes,
+  push them and bring that repo up to date on europa by git first.
 - **On europa itself:** `europa claim`, `submit`, `status` and `release` inside
   `/disks/data/phd/<project>` (local mode).
 - One job slot for the whole machine. Always `claim` before submitting and `release` afterwards.
@@ -73,7 +79,8 @@ script (`thesis/scripts/backup-snapshot.sh`). Never push, delete or base work on
   are pulled or committed if the project tracks them.
 - **Every job longer than about an hour gets a watcher agent on europa**, launched with
   `europa-watch` from a mission written from the watcher template. A watcher runs under
-  `claude -p` and never ends its turn while the job lives. Details: the `europa` and
+  `claude -p`, never ends its turn while the job lives, waits with `europa-wait` (never a bare
+  `sleep`, a background task or Monitor), and does no git. Details: the `europa` and
   `long-missions` skills (source `thesis/tools/claude-skills/`, installed on both machines by
   `thesis/scripts/install-claude-skills.sh`) and
   `references/living/two-machine-operations.md`.
@@ -82,7 +89,7 @@ script (`thesis/scripts/backup-snapshot.sh`). Never push, delete or base work on
 - **Zotero:** undecided (2026-09-16). Agents must not add, edit or delete Zotero items on either
   machine; read-only lookups are fine.
 - **Claude memory:** separate on each machine. **Skills and CLI:** the `europa` and
-  `long-missions` skills and the `europa` / `europa-watch` commands are versioned in `thesis/tools/`
+  `long-missions` skills and the `europa`, `europa-watch` and `europa-wait` commands are versioned in `thesis/tools/`
   and installed on both machines by `thesis/scripts/install-claude-skills.sh` (`--check` reports
   drift); other skills are separate.
 
