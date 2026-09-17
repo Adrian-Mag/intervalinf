@@ -54,20 +54,22 @@ This is a narrow exception to the offline and no-GitHub rules elsewhere in this 
 `backup/wip-<date>-<machine>-<branch>` branches are written automatically by the hourly snapshot
 script (`thesis/scripts/backup-snapshot.sh`). Never push, delete or base work on them.
 
-### Jobs on europa
-- **From the laptop:** `europa push` rsyncs this working tree to `~/data/PhD/<project>` on europa.
-  Then use `europa submit`, `status`, `logs` and `pull` as described in the `europa` skill.
-  `~/data/PhD` is a job area, not a clone: never edit code there.
-- **On europa itself:** run `europa claim`, `submit`, `status` and `release` inside
-  `/disks/data/phd/<project>`. This is local mode: there is no push or pull.
-- Both sides share one job registry. Always `claim` before submitting and `release` afterwards.
-- **Python env:** laptop-submitted jobs use `inferences2` as named in `.europa.yml`. Local-mode jobs
-  on europa map `inferences2` to `/disks/data/envs/inferences-main`, an exact copy of the laptop
-  `inferences` env.
+### Jobs on europa (europa CLI v2, 2026-09-17)
+- **One working tree on europa per project: the git clone `/disks/data/phd/<project>`.** Jobs from
+  either machine run there and write their outputs there. `/disks/data/PhD` (capital) was retired on
+  2026-09-17; never recreate or use it.
+- **From the laptop:** commit, push the branch to the sync remote, then `europa submit '<cmd>'`. It
+  syncs europa's clone to your exact pushed commit (refusing on unpushed commits, uncommitted
+  changes, a running job, or divergence) and starts the job there. `europa push` is retired.
+- **On europa itself:** `europa claim`, `submit`, `status` and `release` inside
+  `/disks/data/phd/<project>` (local mode).
+- One job slot for the whole machine. Always `claim` before submitting and `release` afterwards.
+- **Python env:** both machines' jobs map `inferences2` in `.europa.yml` to
+  `/disks/data/envs/inferences-main`, the exact copy of the laptop `inferences` env.
 
 ### Results and watchers
-- **Big outputs stay on europa** (backed up there); the laptop pulls a specific path with
-  `europa pull <path>` when it needs one. Text outputs (logs, STATUS/REPORT notes, small JSON)
+- **Big outputs stay on europa**, in the clone (backed up nightly); the laptop pulls a specific
+  path with `europa pull <path>` when it needs one. Text outputs (logs, STATUS/REPORT notes, small JSON)
   are pulled or committed if the project tracks them.
 - **Every job longer than about an hour gets a watcher agent on europa**, launched with
   `europa-watch` from a mission written from the watcher template. A watcher runs under
@@ -79,9 +81,10 @@ script (`thesis/scripts/backup-snapshot.sh`). Never push, delete or base work on
 ### Not synced between machines
 - **Zotero:** undecided (2026-09-16). Agents must not add, edit or delete Zotero items on either
   machine; read-only lookups are fine.
-- **Claude memory:** separate on each machine. **Skills:** `europa` and `long-missions` are
-  versioned in `thesis/tools/claude-skills/` and installed on both machines by
-  `thesis/scripts/install-claude-skills.sh` (`--check` reports drift); other skills are separate.
+- **Claude memory:** separate on each machine. **Skills and CLI:** the `europa` and
+  `long-missions` skills and the `europa` / `europa-watch` commands are versioned in `thesis/tools/`
+  and installed on both machines by `thesis/scripts/install-claude-skills.sh` (`--check` reports
+  drift); other skills are separate.
 
 <!-- END two-machine-workflow -->
 
