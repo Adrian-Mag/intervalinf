@@ -1,0 +1,12 @@
+{
+  "annotated_tag_objects_base64": {},
+  "format": "phd-sync-ref-inventory-v1",
+  "refs": {
+    "refs/heads/convex_analysis": "fa426dc4040e6c0c11e786d89e9f52004bd7ba15",
+    "refs/heads/feature/demo-dli-vs-bg": "5cb9f1668abfb072c5283ff0546c3d6a5bb60e5b",
+    "refs/heads/fix/laplacian-double-alpha": "4dbc2302cdfc6c9c43a05fe7b3a87d28e0249a64",
+    "refs/heads/main": "857bd3954acf9328fdfd928c89dfbab9a16b6f3c",
+    "refs/heads/mission/lowering-materialization": "9a12d2607192f176e69d1ace2fc863bd90e21311",
+    "refs/heads/stabilize/intervalinf-for-pli": "7c4e40562617a61cd1aab5821047dee28fc74544"
+  }
+}
